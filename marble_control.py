@@ -18,7 +18,12 @@ class MarbleMirror():
             for i in range(abs(dstep)):
                 self.step -= 1
                 self.kit.stepper1.onestep(direction=stepper.BACKWARD)
-        
+    def home(self):
+        while self.step > 0:
+            self.step -= 1
+            self.kit.stepper1.onestep(direction=stepper.BACKWARD)
+    def drop(self):
+        self.kit.
 
 
 
