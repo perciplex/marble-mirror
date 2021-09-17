@@ -1,7 +1,9 @@
-
 from typing import List, Optional, Any
 from collections import deque
 from time import sleep
+import logging
+
+from marble_control import BallReader, BallState, StepperMotor, LimitSwitch, Gate
 
 from adafruit_motorkit import MotorKit
 from adafruit_servokit import ServoKit
@@ -18,14 +20,14 @@ INTER_COLUMN_DISTANCE = 13.7
 STEPS_PER_COLUMN = int(INTER_COLUMN_DISTANCE * STEPS_PER_REV / MM_PER_REV)
 APPRECIATE_IMAGE_TIME = 5.
 BOARD_DROP_SLEEP_TIME = 5.
-ELEVATOR_STEPPER_CHANNEL = 0
-CARRIAGE_STEPPER_CHANNEL = 1
+ELEVATOR_STEPPER_CHANNEL = 1
+CARRIAGE_STEPPER_CHANNEL = 2
 CARRIAGE_SERVO_CHANNEL = 1
 RELEASE_SERVO_CHANNEL = 2
-CARRIAGE_SERVO_OPEN_PWM = 0
-CARRIAGE_SERVO_CLOSE_PWM = 0
-RELEASE_SERVO_OPEN_PWM = 0
-RELEASE_SERVO_CLOSE_PWM = 0
+CARRIAGE_SERVO_OPEN_ANGLE = 0
+CARRIAGE_SERVO_CLOSE_ANGLE = 0
+RELEASE_SERVO_OPEN_ANGLE = 0
+RELEASE_SERVO_CLOSE_ANGLE = 0
 LIMIT_SWITCH_GPIO_PIN = 1
 HOME_MOVE_LARGE_AMOUNT = -10
 HOME_COLUMN_VALUE = -1  # Doing this because we want the columns to be 0-indexed.
@@ -73,7 +75,7 @@ class MarbleBoard:
 
         assert not self.done(), "Can't ask for next valid column when image is done"
 
-        assert ball_color in COLORS, f'{ball_color=} is not a valid color'
+        assert ball_color in COLORS, f'{ball_color} is not a valid color'
 
         # Go through each queue, see if the top one is the one we want. If it is, pop that marbel and return that number.
         for i, q in enumerate(self._queues_list):
@@ -89,59 +91,11 @@ class MarbleBoard:
         return all([len(q) == 0 for q in self._queues_list])
 
 
-class Gate:
-    
-    def __init__(self, open_pwm: int, closed_pwm: int, channel: int) -> None:
-        self.servo_kit = ServoKit(channels=16)
-        self.servo = self.servo_kit.servo[channel]
-        self.open_pwm = open_pwm
-        self.closed_pwm = closed_pwm
-
-    def open(self):
-        self.servo.pwm = self.open_pwm
-
-    def close(self):
-        self.servo.pwm = self.closed_pwm
-
-    def drop(self, delay=1):
-        self.open()
-        sleep(delay)
-        self.close()
-        sleep(delay)
-
-
-class StepperMotor:
-    def __init__(self, channel: int) -> None:
-        self.kit = MotorKit()
-        self.stepper = getattr(self.kit, f"stepper{channel}")
-
-    def take_step(self, direction: int, style: Any) -> bool:
-        self.stepper.onestep(direction=direction, style=style)
-        return True
-
-    def move(self, steps: int, direction: int = 1) -> None:
-        if steps < 0:
-            steps = -steps
-            direction = -1
-
-        if direction == 1:
-            direction = stepper.FORWARD
-        elif direction == -1:
-            direction = stepper.BACKWARD
-
-        for _ in range(steps):
-            step_success = self.take_step(direction=direction, style=stepper.DOUBLE)
-            if not step_success:
-                break
-
-    def __del__(self):
-        self.stepper.release()
-
-
 class CarriageMotor(StepperMotor):
 
     def limit_is_triggered(self):
-        raise NotImplementedError
+        # raise NotImplementedError
+        return False
 
     def take_step(self, direction: int, style: Any) -> bool:
         if not self.limit_is_triggered():
@@ -153,7 +107,7 @@ class CarriageMotor(StepperMotor):
 class Carriage:
 
     def __init__(self) -> None:
-        self._ball_dropper = Gate(open_pwm=CARRIAGE_SERVO_OPEN_PWM, closed_pwm=CARRIAGE_SERVO_CLOSE_PWM, channel=CARRIAGE_SERVO_CHANNEL)
+        self._ball_dropper = Gate(open_angle=CARRIAGE_SERVO_OPEN_ANGLE, closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE, channel=CARRIAGE_SERVO_CHANNEL)
         self._carriage_motor = CarriageMotor(channel=CARRIAGE_STEPPER_CHANNEL)
         self._cur_column = None
         self.go_home()
@@ -188,23 +142,11 @@ class Carriage:
 
     
     def go_home(self) -> None:
+        logging.error('Carriage going home')
         while not self._carriage_motor.limit_is_triggered():
             self._carriage_motor.move(HOME_MOVE_LARGE_AMOUNT)
         # Carriage should now be right at limit switch trigger
         self._cur_column = HOME_COLUMN_VALUE
-
-
-
-class BallReader:
-
-    def __init__(self) -> None:
-        # Class for whatever method we use to get the value of the next ball
-        pass
-
-    def get_current_ball_color(self) -> str:
-        ball_color = None
-        # Must return either BLACK, WHITE, or None (if there's no ball at all there)
-        return ball_color
 
 
 class MarbleMirror:
@@ -216,7 +158,7 @@ class MarbleMirror:
         self._board = MarbleBoard(n_cols=n_cols, n_rows=n_rows)
         self._elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL)
         self._carriage = Carriage()
-        self._board_dropper = Gate(open_pwm=RELEASE_SERVO_OPEN_PWM, closed_pwm=RELEASE_SERVO_CLOSE_PWM, channel=RELEASE_SERVO_CHANNEL)
+        self._board_dropper = Gate(open_ANGLE=RELEASE_SERVO_OPEN_ANGLE, closed_ANGLE=RELEASE_SERVO_CLOSE_ANGLE, channel=RELEASE_SERVO_CHANNEL)
         self._ball_reader = BallReader()
 
 
@@ -227,34 +169,42 @@ class MarbleMirror:
                         see MarbleBoard.set_new_board() for how they're organized.
         '''
         
-
+        logging.error('Clearing image')
         # Get rid of any old image
         self.clear_image()
 
+        logging.error('Setting new image')
         # Set the new image that we'll be drawing
         self._board.set_new_board(image)
 
         while not self._board.done():
             
+            logging.error('Reading current ball color')
             # Get current ball color
-            current_ball_color = self._ball_reader.get_current_ball_color()
+            current_ball_color = self._ball_reader.color
 
-            while current_ball_color is None:
+            while current_ball_color is BallState.Empty:
+                logging.error('No current ball; pushing next ball')
                 # If there's no current next ball, push so we hopefully have a next ball
                 self._elevator.push_next_ball()
+                logging.error('Reading current ball color')
                 # Get current ball color
-                current_ball_color = self._ball_reader.get_current_ball_color()
+                current_ball_color = self._ball_reader.color
 
+            logging.error('Pushing next ball into carriage')
             # If there is a current next ball, push so it goes into the carriage
             self._elevator.push_next_ball()
 
+            logging.error('Getting next valid column for current ball')
             # Get next column that we can drop this ball in
             column_that_needs_current_ball = self._board.get_next_valid_column_for_color(current_ball_color)
 
             # None corresponds to no columns need this color
             if column_that_needs_current_ball is None:
+                logging.error('No column needs current ball; recycling')
                 self._carriage.recycle_current_ball()    
             else:
+                logging.error(f'Dropping ball in column {column_that_needs_current_ball}')
                 self._carriage.drop_ball_in_column_and_home(column_that_needs_current_ball)
             
             
@@ -270,6 +220,12 @@ class MarbleMirror:
 
 if __name__ == '__main__':
 
-    mm = MarbleMirror(n_cols=4, n_rows=2)
+    # mm = MarbleMirror(n_cols=4, n_rows=2)
+    # elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL)
+    # elevator.move(steps=100, direction=1)
+
+    carriage_motor = CarriageMotor(channel=CARRIAGE_STEPPER_CHANNEL)
+    carriage_motor.move(steps=100, direction=1)
+    
     
     

@@ -1,6 +1,7 @@
 import logging
 from enum import Enum
 from time import sleep
+from typing import List, Optional, Any
 
 from adafruit_motorkit import MotorKit
 from adafruit_servokit import ServoKit
@@ -29,12 +30,16 @@ class Gate:
         sleep(delay)
 
 
-class Stepper:
-    def __init__(self, channel=1):
+class StepperMotor:
+    def __init__(self, channel: int) -> None:
         self.kit = MotorKit()
         self.stepper = getattr(self.kit, f"stepper{channel}")
 
-    def move(self, steps, direction=1):
+    def take_step(self, direction: int, style: Any) -> bool:
+        self.stepper.onestep(direction=direction, style=style)
+        return True
+
+    def move(self, steps: int, direction: int = 1) -> None:
         if steps < 0:
             steps = -steps
             direction = -1
@@ -44,11 +49,14 @@ class Stepper:
         elif direction == -1:
             direction = stepper.BACKWARD
 
-        for i in range(steps):
-            self.stepper.onestep(direction=direction, style=stepper.DOUBLE)
+        for _ in range(steps):
+            step_success = self.take_step(direction=direction, style=stepper.DOUBLE)
+            if not step_success:
+                break
 
     def __del__(self):
         self.stepper.release()
+
 
 class LimitSwitch():
     def __init__(self, pin=21):
@@ -59,12 +67,13 @@ class LimitSwitch():
     def is_down(self):
         return GPIO.input(self.pin)
 
-class Pixel:
-    BallState = Enum('BallState', 'Black White Empty')
+BallState = Enum('BallState', 'Black White Empty')
+
+class BallReader:
     thresholds = [
-        (BallState.Black, (200, 400)),
-        (BallState.White, (500, 800)),
-        (BallState.Empty, (900, 1000))
+        (BallState.Black, (0, 1000)), #700 nominal
+        (BallState.White, (1400, 2500)), #1700 nominal
+        (BallState.Empty, (1000, 1400)) # 1200 nominal
     ]
     def __init__(self):
         self.pixel = TCS34725(board.I2C())
@@ -72,7 +81,8 @@ class Pixel:
     @property
     def value(self):
         lux = self.pixel.lux
+        print(lux)
         for (ball_state, (low, high)) in self.thresholds:
             if low < lux < high:
                 return ball_state
-        raise ValueError("Measurement out of range.")
+        raise ValueError(f"Measurement {lux} out of range.")
