@@ -10,6 +10,7 @@ import board
 from adafruit_tcs34725 import TCS34725
 import RPi.GPIO as GPIO
 
+
 class Gate:
     def __init__(self, channel=0, open_angle=0, closed_angle=180):
         self.servo_kit = ServoKit(channels=16)
@@ -58,28 +59,31 @@ class StepperMotor:
         self.stepper.release()
 
 
-class LimitSwitch():
+class LimitSwitch:
     def __init__(self, pin=21):
         self.pin = pin
         GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
     @property
-    def is_down(self):
+    def is_pressed(self):
         return GPIO.input(self.pin)
 
-BallState = Enum('BallState', 'Black White Empty')
+
+BallState = Enum("BallState", "Black White Empty")
+
 
 class BallReader:
     thresholds = [
-        (BallState.Black, (0, 1000)), #700 nominal
-        (BallState.White, (1400, 2500)), #1700 nominal
-        (BallState.Empty, (1000, 1400)) # 1200 nominal
+        (BallState.Black, (0, 1000)),  # 700 nominal
+        (BallState.White, (1400, 2500)),  # 1700 nominal
+        (BallState.Empty, (1000, 1400)),  # 1200 nominal
     ]
+
     def __init__(self):
         self.pixel = TCS34725(board.I2C())
 
     @property
-    def value(self):
+    def color(self):
         lux = self.pixel.lux
         print(lux)
         for (ball_state, (low, high)) in self.thresholds:
