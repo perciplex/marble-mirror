@@ -6,7 +6,6 @@ from adafruit_servokit import ServoKit
 from adafruit_motor import stepper, servo
 
 
-
 class Gate:
     def __init__(self, channel=0, open_angle=0, closed_angle=180):
         self.servo_kit = ServoKit(channels=16)
@@ -25,6 +24,7 @@ class Gate:
         sleep(delay)
         self.close()
         sleep(delay)
+
 
 class Stepper:
     def __init__(self, channel=1):

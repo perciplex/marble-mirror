@@ -1,7 +1,11 @@
 
-from typing import List, Optional
+from typing import List, Optional, Any
 from collections import deque
 from time import sleep
+
+from adafruit_motorkit import MotorKit
+from adafruit_servokit import ServoKit
+from adafruit_motor import stepper
 
 
 BLACK = 'black'
@@ -14,6 +18,17 @@ INTER_COLUMN_DISTANCE = 13.7
 STEPS_PER_COLUMN = int(INTER_COLUMN_DISTANCE * STEPS_PER_REV / MM_PER_REV)
 APPRECIATE_IMAGE_TIME = 5.
 BOARD_DROP_SLEEP_TIME = 5.
+ELEVATOR_STEPPER_CHANNEL = 0
+CARRIAGE_STEPPER_CHANNEL = 1
+CARRIAGE_SERVO_CHANNEL = 1
+RELEASE_SERVO_CHANNEL = 2
+CARRIAGE_SERVO_OPEN_PWM = 0
+CARRIAGE_SERVO_CLOSE_PWM = 0
+RELEASE_SERVO_OPEN_PWM = 0
+RELEASE_SERVO_CLOSE_PWM = 0
+LIMIT_SWITCH_GPIO_PIN = 1
+HOME_MOVE_LARGE_AMOUNT = -10
+HOME_COLUMN_VALUE = -1  # Doing this because we want the columns to be 0-indexed.
 
 
 class MarbleBoard:
@@ -76,64 +91,84 @@ class MarbleBoard:
 
 class Gate:
     
-    def __init__(self, open_pwm: int, closed_pwm: int) -> None:
+    def __init__(self, open_pwm: int, closed_pwm: int, channel: int) -> None:
+        self.servo_kit = ServoKit(channels=16)
+        self.servo = self.servo_kit.servo[channel]
+        self.open_pwm = open_pwm
+        self.closed_pwm = closed_pwm
 
-        # Parent class for servos
+    def open(self):
+        self.servo.pwm = self.open_pwm
 
-        self._open_pwm = open_pwm
-        self._closed_pwm = closed_pwm
+    def close(self):
+        self.servo.pwm = self.closed_pwm
 
-    
-    def open(self) -> None:
-        pass
-    
-    def close(self) -> None:
-        pass
+    def drop(self, delay=1):
+        self.open()
+        sleep(delay)
+        self.close()
+        sleep(delay)
 
 
 class StepperMotor:
-    pass
+    def __init__(self, channel: int) -> None:
+        self.kit = MotorKit()
+        self.stepper = getattr(self.kit, f"stepper{channel}")
+
+    def take_step(self, direction: int, style: Any) -> bool:
+        self.stepper.onestep(direction=direction, style=style)
+        return True
+
+    def move(self, steps: int, direction: int = 1) -> None:
+        if steps < 0:
+            steps = -steps
+            direction = -1
+
+        if direction == 1:
+            direction = stepper.FORWARD
+        elif direction == -1:
+            direction = stepper.BACKWARD
+
+        for _ in range(steps):
+            step_success = self.take_step(direction=direction, style=stepper.DOUBLE)
+            if not step_success:
+                break
+
+    def __del__(self):
+        self.stepper.release()
 
 
 class CarriageMotor(StepperMotor):
 
-    def __init__(self) -> None:
+    def limit_is_triggered(self):
+        raise NotImplementedError
 
-        # Class for the stepper motor that moves the carriage
-
-        self._motor = None
-
-
-
-class Elevator(StepperMotor):
-
-    def __init__(self) -> None:
-
-        # Class for the stepper motor that moves balls from the bottom to top
-
-        self._motor = None
+    def take_step(self, direction: int, style: Any) -> bool:
+        if not self.limit_is_triggered():
+            super().take_step(direction=direction, style=style)
+        else:
+            return False
 
 
 class Carriage:
 
     def __init__(self) -> None:
-        self._ball_dropper = Gate()
-        self._carriage_motor = CarriageMotor()
-        self._home_position = 0
+        self._ball_dropper = Gate(open_pwm=CARRIAGE_SERVO_OPEN_PWM, closed_pwm=CARRIAGE_SERVO_CLOSE_PWM, channel=CARRIAGE_SERVO_CHANNEL)
+        self._carriage_motor = CarriageMotor(channel=CARRIAGE_STEPPER_CHANNEL)
         self._cur_column = None
+        self.go_home()
 
 
     def drop_ball_in_column_and_home(self, target_column: int) -> None:
 
         self.go_to_column(target_column)
         self.drop_ball()
-        self.home()
+        self.go_home()
 
 
     def recycle_current_ball(self) -> None:
-        raise
-        # TODO: define what column the recycle column is
-        self.drop_ball_in_column_and_home(-1)
+        assert self._cur_column == HOME_COLUMN_VALUE
+        self.drop_ball()
 
 
     def drop_ball(self) -> None:
@@ -152,9 +187,11 @@ class Carriage:
         self._cur_column = target_column
 
     
-    def home(self) -> None:
-
-        self.go_to_column(0)
+    def go_home(self) -> None:
+        while not self._carriage_motor.limit_is_triggered():
+            self._carriage_motor.move(HOME_MOVE_LARGE_AMOUNT)
+        # Carriage should now be right at limit switch trigger
+        self._cur_column = HOME_COLUMN_VALUE
 
 
 
@@ -172,14 +209,14 @@ class BallReader:
 
 class MarbleMirror:
 
-    def __init__(self) -> None:
+    def __init__(self, n_cols: int, n_rows: int) -> None:
 
         # Main class for the whole mirror.
 
-        self._board = MarbleBoard()
-        self._elevator = Elevator()
+        self._board = MarbleBoard(n_cols=n_cols, n_rows=n_rows)
+        self._elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL)
         self._carriage = Carriage()
-        self._board_dropper = Gate()
+        self._board_dropper = Gate(open_pwm=RELEASE_SERVO_OPEN_PWM, closed_pwm=RELEASE_SERVO_CLOSE_PWM, channel=RELEASE_SERVO_CHANNEL)
         self._ball_reader = BallReader()
 
 
@@ -229,3 +266,10 @@ class MarbleMirror:
         self._board_dropper.open()
         sleep(BOARD_DROP_SLEEP_TIME)
         self._board_dropper.close()
+
+
+if __name__ == '__main__':
+
+    mm = MarbleMirror(n_cols=4, n_rows=2)
+    
+    

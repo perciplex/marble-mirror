@@ -11,6 +11,7 @@ def test_dual_servo():
     servo.drop()
     servo_2.drop()
 
+
 def test_stepper():
     stepper = Stepper()
     stepper.move(50)
@@ -19,6 +20,7 @@ def test_stepper():
 def test_stepper_reverse():
     stepper = Stepper()
     stepper.move(-50)
+
 
 def test_stepper_2():
     stepper = Stepper(channel=2)
