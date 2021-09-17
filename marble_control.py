@@ -1,10 +1,13 @@
 import logging
+from enum import Enum
 from time import sleep
 
 from adafruit_motorkit import MotorKit
 from adafruit_servokit import ServoKit
 from adafruit_motor import stepper, servo
-
+import board
+from adafruit_tcs34725 import TCS34725
+import RPi.GPIO as GPIO
 
 
 class Gate:
@@ -47,29 +50,29 @@ class Stepper:
     def __del__(self):
         self.stepper.release()
 
+class LimitSwitch():
+    def __init__(self, pin=21):
+        self.pin = pin
+        GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
-"""
-class MarbleMirror():
-    columnoffset = 100
-    col_steps = 10
+    @property
+    def is_down(self):
+        return GPIO.input(self.pin)
+
+class Pixel:
+    BallState = Enum('BallState', 'Black White Empty')
+    thresholds = [
+        (BallState.Black, (200, 400)),
+        (BallState.White, (500, 800)),
+        (BallState.Empty, (900, 1000))
+    ]
     def __init__(self):
-        self.step = 0
-        self.kit = MotorKit(i2c=board.I2C())
-    def goto_col(self, col):
-        goalstep = columnoffset + col*col_steps
-        dstep = self.step - goalstep
-        if dstep > 0:
-            for i in range(dstep):
-                self.step += 1
-                self.kit.stepper1.onestep(direction=stepper.FORWARD)
-        if dstep < 0:
-            for i in range(abs(dstep)):
-                self.step -= 1
-                self.kit.stepper1.onestep(direction=stepper.BACKWARD)
-    def home(self):
-        while self.step > 0:
-            self.step -= 1
-            self.kit.stepper1.onestep(direction=stepper.BACKWARD)
-    def drop(self):
-        self.kit.
-"""
+        self.pixel = TCS34725(board.I2C())
+
+    @property
+    def value(self):
+        lux = self.pixel.lux
+        for (ball_state, (low, high)) in self.thresholds:
+            if low < lux < high:
+                return ball_state
+        raise ValueError("Measurement out of range.")

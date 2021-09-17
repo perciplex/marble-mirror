@@ -1,4 +1,6 @@
-from marble_control import Gate, Stepper
+import time
+
+from marble_control import Gate, Stepper, LimitSwitch
 from adafruit_motorkit import MotorKit
 from adafruit_servokit import ServoKit
 
@@ -28,3 +30,13 @@ def test_stepper_2():
 def test_stepper_2_reverse():
     stepper = Stepper(channel=2)
     stepper.move(-250)
+
+def test_switch_up():
+    switch = LimitSwitch()
+    assert switch.value
+
+def test_switch_down():
+    switch = LimitSwitch()
+    for _ in range(5):
+        print(switch.is_down)
+        time.sleep(1)
