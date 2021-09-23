@@ -40,7 +40,7 @@ class StepperMotor:
         self.stepper.onestep(direction=direction, style=style)
         return True
 
-    def move(self, steps: int, direction: int = 1) -> None:
+    def move(self, steps: int, direction: int) -> None:
         if steps < 0:
             steps = -steps
             direction = -1

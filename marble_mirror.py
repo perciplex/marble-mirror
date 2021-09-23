@@ -1,8 +1,8 @@
+from enum import IntEnum, Enum
 from typing import List, Optional, Any
 from collections import deque
 from time import sleep
 import logging
-
 from marble_control import BallReader, BallState, StepperMotor, LimitSwitch, Gate
 
 STEPS_PER_REV = 200.0
@@ -12,8 +12,9 @@ INTER_COLUMN_DISTANCE = 13.7
 STEPS_PER_COLUMN = int(INTER_COLUMN_DISTANCE * STEPS_PER_REV / MM_PER_REV)
 APPRECIATE_IMAGE_TIME = 5.0
 BOARD_DROP_SLEEP_TIME = 5.0
-ELEVATOR_STEPPER_CHANNEL = 1
-CARRIAGE_STEPPER_CHANNEL = 2
+# The wire with a ziptie on it is for the elevator stepper. Don't switch these channels.
+ELEVATOR_STEPPER_CHANNEL = 2
+CARRIAGE_STEPPER_CHANNEL = 1
 CARRIAGE_SERVO_CHANNEL = 1
 RELEASE_SERVO_CHANNEL = 2
 CARRIAGE_SERVO_OPEN_ANGLE = 0
@@ -23,6 +24,18 @@ RELEASE_SERVO_CLOSE_ANGLE = 0
 LIMIT_SWITCH_GPIO_PIN = 1
 HOME_MOVE_LARGE_AMOUNT = 1000
 HOME_COLUMN_VALUE = -1  # Doing this because we want the columns to be 0-indexed.
+ELEVATOR_BALL_PUSH_STEPS = 50
+CARRIAGE_MOTOR_COLUMN_STEPS = 150
+
+
+class ElevatorMoveDirection(IntEnum):
+    BALL_UP = 1
+    BALL_DOWN = -1
+
+class CarriageMoveDirection(IntEnum):
+    AWAY = -1
+    TOWARDS = 1
+
 
 
 class MarbleBoard:
@@ -84,10 +97,20 @@ class CarriageMotor(StepperMotor):
         return self._limit_switch.is_pressed
 
     def take_step(self, direction: int, style: Any) -> bool:
-        if not self._limit_switch.is_pressed:
-            return super().take_step(direction=direction, style=style)
+        """
+        Returns the success status of taking the step: True if it actually took it, False if it didn't
+        end up taking it.
+        """
+        if direction == CarriageMoveDirection.AWAY:
+            # If it's moving away, we don't care if the limit switch is being pressed, just take the step.
+            super().take_step(direction=direction, style=style)
+            return True
         else:
-            return False
+            if not self._limit_switch.is_pressed:
+                super().take_step(direction=direction, style=style)
+                return True
+            else:
+                return False
 
 
 class Carriage:
@@ -120,9 +143,11 @@ class Carriage:
     def go_to_column(self, target_column: int) -> None:
 
         logging.error(f"Carriage going to column {target_column}")
-        distance_to_move = -int((target_column - self._cur_column) * STEPS_PER_COLUMN)
+        # We want *this* var to be positive when going away. If you're currently in column 2 and want
+        # to go to column 5, the distance_to_move > 0.
+        distance_to_move = int((target_column - self._cur_column) * STEPS_PER_COLUMN)
 
-        self._carriage_motor.move(distance_to_move)
+        self._carriage_motor.move(CarriageMoveDirection.AWAY * distance_to_move)
         # TODO: make sure this either blocks, or sleep some amount during drive
 
         self._cur_column = target_column
@@ -135,13 +160,17 @@ class Carriage:
         self._cur_column = HOME_COLUMN_VALUE
 
 
+class Elevator(StepperMotor):
+    def push_next_ball(self):
+        super().move(ELEVATOR_BALL_PUSH_STEPS, ElevatorMoveDirection.BALL_UP)
+
+
 class MarbleMirror:
     def __init__(self, n_cols: int, n_rows: int) -> None:
 
         # Main class for the whole mirror.
-
         self._board = MarbleBoard(n_cols=n_cols, n_rows=n_rows)
-        self._elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL)
+        self._elevator = Elevator(channel=ELEVATOR_STEPPER_CHANNEL)
         self._carriage = Carriage()
         self._board_dropper = Gate(
             open_ANGLE=RELEASE_SERVO_OPEN_ANGLE,
@@ -212,7 +241,10 @@ class MarbleMirror:
 
 if __name__ == "__main__":
 
-    # mm = MarbleMirror(n_cols=4, n_rows=2)
+    mm = MarbleMirror(n_cols=4, n_rows=2)
+
+
+
     # elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL)
     # elevator.move(steps=100, direction=-1)
 
