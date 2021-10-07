@@ -4,6 +4,7 @@ from collections import deque
 from time import sleep
 import logging
 from marble_control import BallReader, BallState, StepperMotor, LimitSwitch, Gate
+from adafruit_motor import stepper
 
 STEPS_PER_REV = 200.0
 MM_PER_REV = 8.0
@@ -26,8 +27,9 @@ HOME_MOVE_LARGE_AMOUNT = 1000
 HOME_COLUMN_VALUE = -1  # Doing this because we want the columns to be 0-indexed.
 ELEVATOR_BALL_PUSH_STEPS = 50
 CARRIAGE_MOTOR_COLUMN_STEPS = 150
+ELEVATOR_STEP_SLEEP = 0.01
 
-
+'''
 class ElevatorMoveDirection(IntEnum):
     BALL_UP = 1
     BALL_DOWN = -1
@@ -35,6 +37,15 @@ class ElevatorMoveDirection(IntEnum):
 class CarriageMoveDirection(IntEnum):
     AWAY = -1
     TOWARDS = 1
+'''
+
+class ElevatorMoveDirection(IntEnum):
+    BALL_UP = stepper.FORWARD
+    BALL_DOWN = stepper.BACKWARD
+
+class CarriageMoveDirection(IntEnum):
+    AWAY = stepper.BACKWARD
+    TOWARDS = stepper.FORWARD
 
 
 
@@ -101,16 +112,22 @@ class CarriageMotor(StepperMotor):
         Returns the success status of taking the step: True if it actually took it, False if it didn't
         end up taking it.
         """
+        # logging.error(f'Moving carriage motor in direction: {direction}')
         if direction == CarriageMoveDirection.AWAY:
             # If it's moving away, we don't care if the limit switch is being pressed, just take the step.
-            super().take_step(direction=direction, style=style)
+            step_result = super().take_step(direction=direction, style=style)
+            # logging.error(f'Moving away, step_result = {step_result}')
             return True
-        else:
+        elif direction == CarriageMoveDirection.TOWARDS:
             if not self._limit_switch.is_pressed:
-                super().take_step(direction=direction, style=style)
+                step_result = super().take_step(direction=direction, style=style)
+                # logging.error(f'Moving towards, switch not pressed. step_result = {step_result}')
                 return True
             else:
+                # logging.error(f'Moving towards, switch pressed. step_result = False')
                 return False
+        else:
+            raise
 
 
 class Carriage:
@@ -153,9 +170,9 @@ class Carriage:
         self._cur_column = target_column
 
     def go_home(self) -> None:
-        logging.error("Carriage going home")
+        logging.error(f"Carriage going home, CarriageMoveDirection.TOWARDS = {CarriageMoveDirection.TOWARDS}")
         while not self._carriage_motor.limit_is_pressed():
-            self._carriage_motor.move(HOME_MOVE_LARGE_AMOUNT)
+            self._carriage_motor.move(HOME_MOVE_LARGE_AMOUNT, CarriageMoveDirection.TOWARDS)
         # Carriage should now be right at limit switch trigger
         self._cur_column = HOME_COLUMN_VALUE
 
@@ -163,6 +180,10 @@ class Carriage:
 class Elevator(StepperMotor):
     def push_next_ball(self):
         super().move(ELEVATOR_BALL_PUSH_STEPS, ElevatorMoveDirection.BALL_UP)
+
+    def take_step(self, direction: int, style: Any) -> bool:
+        sleep(ELEVATOR_STEP_SLEEP)
+        return super().take_step(direction=direction, style=style)
 
 
 class MarbleMirror:
@@ -173,8 +194,8 @@ class MarbleMirror:
         self._elevator = Elevator(channel=ELEVATOR_STEPPER_CHANNEL)
         self._carriage = Carriage()
         self._board_dropper = Gate(
-            open_ANGLE=RELEASE_SERVO_OPEN_ANGLE,
-            closed_ANGLE=RELEASE_SERVO_CLOSE_ANGLE,
+            open_angle=RELEASE_SERVO_OPEN_ANGLE,
+            closed_angle=RELEASE_SERVO_CLOSE_ANGLE,
             channel=RELEASE_SERVO_CHANNEL,
         )
         self._ball_reader = BallReader()
@@ -242,8 +263,10 @@ class MarbleMirror:
 if __name__ == "__main__":
 
     mm = MarbleMirror(n_cols=4, n_rows=2)
+    # img = [[0, 1, 0, 1], [1, 0, 1, 0]]
+    img = [[0, 1], [0, 1], [1, 0], [1, 0]]
 
-
+    mm.draw_image(img)
 
     # elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL)
     # elevator.move(steps=100, direction=-1)
@@ -251,7 +274,7 @@ if __name__ == "__main__":
     # carriage_motor = CarriageMotor(channel=CARRIAGE_STEPPER_CHANNEL)
     # carriage_motor.move(steps=-100, direction=1)
 
+    exit()
     carriage = Carriage()
     carriage.go_to_column(2)
-    exit()
     carriage.go_home()

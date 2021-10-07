@@ -41,14 +41,21 @@ class StepperMotor:
         return True
 
     def move(self, steps: int, direction: int) -> None:
+        assert steps >= 0, 'Do not pass negative steps right now'
         if steps < 0:
             steps = -steps
             direction = -1
 
+        assert direction == stepper.FORWARD or direction == stepper.BACKWARD
+
+        '''
         if direction == 1:
             direction = stepper.FORWARD
         elif direction == -1:
             direction = stepper.BACKWARD
+        else:
+            raise
+        '''
 
         for _ in range(steps):
             step_success = self.take_step(direction=direction, style=stepper.DOUBLE)
