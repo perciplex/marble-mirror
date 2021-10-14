@@ -81,9 +81,9 @@ BallState = Enum("BallState", "Black White Empty")
 
 class BallReader:
     thresholds = [
-        (BallState.Black, (0, 1000)),  # 700 nominal
-        (BallState.White, (1400, 2500)),  # 1700 nominal
-        (BallState.Empty, (1000, 1400)),  # 1200 nominal
+        (BallState.Black, (0, 0)),  # 700 nominal
+        (BallState.White, (0, 250000)),  # 1700 nominal
+        (BallState.Empty, (0, 0)),  # 1200 nominal
     ]
 
     def __init__(self):

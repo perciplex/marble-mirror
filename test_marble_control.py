@@ -20,11 +20,11 @@ def test_dual_servo():
 
 def test_stepper(move_amount = 50):
     stepper = StepperMotor(channel=1)
-    stepper.move(move_amount, 1)
+    stepper.move(move_amount, CarriageMoveDirection.TOWARDS)
 
 def test_stepper_reverse(move_amount = 50):
     stepper = StepperMotor(channel=1)
-    stepper.move(move_amount, -1)
+    stepper.move(move_amount, CarriageMoveDirection.AWAY)
 
 
 def test_stepper_2(move_amount = 250):
