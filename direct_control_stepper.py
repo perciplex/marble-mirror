@@ -1,4 +1,5 @@
 import argparse
+from time import sleep
 from test_marble_control import test_stepper, test_stepper_reverse, \
                     test_stepper_2, test_stepper_2_reverse, \
                     test_elevator_push_ball, test_carriage_one_column_away, \
@@ -19,6 +20,9 @@ parser.add_argument("--carriage_column_towards", action='store_true')
 parser.add_argument("--carriage_home", action='store_true')
 parser.add_argument("--carriage_servo_open", action='store_true')
 parser.add_argument("--carriage_servo_close", action='store_true')
+parser.add_argument("--carriage_servo_drop", action='store_true')
+parser.add_argument("--carriage_columns_away", type=int, default=None)
+parser.add_argument("--carriage_columns_towards", type=int, default=None)
 
 args = parser.parse_args()
 
@@ -55,5 +59,20 @@ if args.carriage_servo_open:
 if args.carriage_servo_close:
     test_carriage_close()
 
+if args.carriage_servo_drop:
+    test_carriage_open()
+    sleep(1.)
+    test_carriage_close()
+
 if args.switch_value:
     test_switch_value()
+
+if args.carriage_columns_away is not None:
+    for _ in range(args.carriage_columns_away):
+        sleep(0.1)
+        test_carriage_one_column_away()
+
+if args.carriage_columns_towards is not None:
+    for _ in range(args.carriage_columns_towards):
+        sleep(0.1)
+        test_carriage_one_column_towards()

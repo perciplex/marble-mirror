@@ -10,6 +10,8 @@ import board
 from adafruit_tcs34725 import TCS34725
 import RPi.GPIO as GPIO
 
+import pickle
+
 
 class Gate:
     def __init__(self, channel=0, open_angle=0, closed_angle=180):
@@ -61,9 +63,12 @@ class StepperMotor:
             step_success = self.take_step(direction=direction, style=stepper.DOUBLE)
             if not step_success:
                 break
+    
+    def release(self):
+        self.stepper.release()
 
     def __del__(self):
-        self.stepper.release()
+        self.release()
 
 
 class LimitSwitch:
@@ -76,24 +81,61 @@ class LimitSwitch:
         return GPIO.input(self.pin)
 
 
-BallState = Enum("BallState", "Black White Empty")
+class BallState(Enum):
+    Black = 1
+    White = 0
+    Empty = -1
+    Unknown = -2
+
+
+class BallReaderKNN:
+    vocab = [BallState.Empty, BallState.Black, BallState.White]
+    def __init__(self, model_pickle_path='model_garbus.pickle'):
+        self.pixel = TCS34725(board.I2C())
+        self.pixel.integration_time = 2.4
+        self.pixel.gain = 4
+
+        with open(model_pickle_path, 'rb') as handle:
+            self.model = pickle.load(handle)
+
+    @property
+    def color(self):
+        raw = None
+        while raw is None or 0 in raw:
+            print("raw", raw)
+            raw = self.pixel.color_raw
+        logging.error(f"Pixel value {raw}")
+        label = self.model.predict([raw])
+        return self.vocab[label[0]]
 
 
 class BallReader:
     thresholds = [
-        (BallState.Black, (0, 0)),  # 700 nominal
-        (BallState.White, (0, 250000)),  # 1700 nominal
-        (BallState.Empty, (0, 0)),  # 1200 nominal
+        (BallState.Black, (300, 500)),  # 700 nominal
+        (BallState.White, (800, 1500)),  # 1700 nominal
+        (BallState.Empty, (550, 650)),  # 1200 nominal
+        (BallState.Unknown, (0, 10000)),  # 1200 nominal
     ]
 
     def __init__(self):
         self.pixel = TCS34725(board.I2C())
+        self.pixel.integration_time = 2.4
+        self.pixel.gain = 4
 
     @property
     def color(self):
         lux = self.pixel.lux
-        print(lux)
+
+        return BallState.White
         for (ball_state, (low, high)) in self.thresholds:
             if low < lux < high:
                 return ball_state
         raise ValueError(f"Measurement {lux} out of range.")
+
+    def all_color_info(self):
+        lux = self.pixel.lux
+        color_rgb_bytes = str(self.pixel.color_rgb_bytes).replace(' ', '')
+        color_temperature = str(self.pixel.color_temperature).replace(' ', '')
+        color_raw = str(self.pixel.color_raw).replace(' ', '')
+        all_ball_info = f'{color_rgb_bytes}\t{color_raw}\t{color_temperature}\t{lux}\n'
+        return self.pixel.color_raw

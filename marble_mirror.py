@@ -3,12 +3,12 @@ from typing import List, Optional, Any
 from collections import deque
 from time import sleep
 import logging
-from marble_control import BallReader, BallState, StepperMotor, LimitSwitch, Gate
+from marble_control import BallReader, BallReaderKNN, BallState, StepperMotor, LimitSwitch, Gate
 from adafruit_motor import stepper
 
 STEPS_PER_REV = 200.0
 MM_PER_REV = 8.0
-INTER_COLUMN_DISTANCE = 13.7  # mm?
+INTER_COLUMN_DISTANCE = 10.3  # (mm). Original (non rails) was 13.7
 # INTER_COLUMN_DISTANCE = 40
 STEPS_PER_COLUMN = int(INTER_COLUMN_DISTANCE * STEPS_PER_REV / MM_PER_REV)
 APPRECIATE_IMAGE_TIME = 5.0
@@ -18,8 +18,8 @@ ELEVATOR_STEPPER_CHANNEL = 2
 CARRIAGE_STEPPER_CHANNEL = 1
 CARRIAGE_SERVO_CHANNEL = 0
 RELEASE_SERVO_CHANNEL = 1
-CARRIAGE_SERVO_OPEN_ANGLE = 120
-CARRIAGE_SERVO_CLOSE_ANGLE = 70
+CARRIAGE_SERVO_OPEN_ANGLE = 140
+CARRIAGE_SERVO_CLOSE_ANGLE = 120
 RELEASE_SERVO_OPEN_ANGLE = 0
 RELEASE_SERVO_CLOSE_ANGLE = 0
 LIMIT_SWITCH_GPIO_PIN = 1
@@ -28,14 +28,14 @@ HOME_COLUMN_VALUE = -1  # Doing this because we want the columns to be 0-indexed
 ELEVATOR_BALL_PUSH_STEPS_FULL_ROTATION = 202  # Set intentionally
 ELEVATOR_BALL_PUSH_STEPS = ELEVATOR_BALL_PUSH_STEPS_FULL_ROTATION  # Incremental amount
 CARRIAGE_MOTOR_COLUMN_STEPS = 325  # Set intentionally
-HOME_TO_FIRST_COLUMN_ADDITIONAL_OFFSET_STEPS = 40  # Set intentionally; could be a bit more precise
+HOME_TO_FIRST_COLUMN_ADDITIONAL_OFFSET_STEPS = 165  # Set intentionally; could be a bit more precise
 ELEVATOR_STEP_SLEEP = 0.001  # Set
 ELEVATOR_PUSH_WAIT_TIME_S = 1.5  # How long it waits after pushing a ball to do a reading, before pushing again
 
 
 class ElevatorMoveDirection(IntEnum):
-    BALL_UP = stepper.FORWARD
-    BALL_DOWN = stepper.BACKWARD
+    BALL_UP = stepper.BACKWARD
+    BALL_DOWN = stepper.FORWARD
 
 class CarriageMoveDirection(IntEnum):
     AWAY = stepper.BACKWARD
@@ -79,9 +79,13 @@ class MarbleBoard:
 
         assert not self.done(), "Can't ask for next valid column when image is done"
 
+        logging.error(f'Looking for valid column for ball color: = {ball_color}')
         # Go through each queue, see if the top one is the one we want. If it is, pop that marbel and return that number.
         for i, q in enumerate(self._queues_list):
-            if len(q) > 0 and q[0] == ball_color:
+            logging.error(f'\tchecking queue {i}...')
+            if len(q) > 0:
+                logging.error(f'\tnext color needed for this column is {q[0]}')
+            if len(q) > 0 and q[0] == ball_color.value:
                 q.popleft()
                 return i
 
@@ -106,6 +110,7 @@ class CarriageMotor(StepperMotor):
         Returns the success status of taking the step: True if it actually took it, False if it didn't
         end up taking it.
         """
+        sleep(ELEVATOR_STEP_SLEEP)
         # logging.error(f'Moving carriage motor in direction: {direction}')
         if direction == CarriageMoveDirection.AWAY:
             # If it's moving away, we don't care if the limit switch is being pressed, just take the step.
@@ -134,13 +139,14 @@ class Carriage:
         self._carriage_motor = CarriageMotor(channel=CARRIAGE_STEPPER_CHANNEL)
         # self._cur_column = None
         self._cur_column = HOME_COLUMN_VALUE
-        # self.go_home()
+        self.go_home()
 
     def drop_ball_in_column_and_home(self, target_column: int) -> None:
 
         self.go_to_column(target_column)
         self.drop_ball()
         self.go_home()
+        self._carriage_motor.release()
 
     def recycle_current_ball(self) -> None:
         assert self._cur_column == HOME_COLUMN_VALUE
@@ -196,7 +202,7 @@ class MarbleMirror:
             closed_angle=RELEASE_SERVO_CLOSE_ANGLE,
             channel=RELEASE_SERVO_CHANNEL,
         )
-        self._ball_reader = BallReader()
+        self._ball_reader = BallReaderKNN()
 
     def draw_image(self, image: List[List[int]]) -> None:
 
@@ -228,11 +234,9 @@ class MarbleMirror:
                 # Get current ball color
                 current_ball_color = self._ball_reader.color
 
-            logging.error("Pushing next ball into carriage")
-            # If there is a current next ball, push so it goes into the carriage
-            self._elevator.push_next_ball()
 
-            logging.error("Getting next valid column for current ball")
+
+            logging.error("Getting next valid column for current ball\n")
             # Get next column that we can drop this ball in
             column_that_needs_current_ball = (
                 self._board.get_next_valid_column_for_color(current_ball_color)
@@ -240,7 +244,7 @@ class MarbleMirror:
 
             # None corresponds to no columns need this color
             if column_that_needs_current_ball is None:
-                logging.error("No column needs current ball; recycling")
+                logging.error(f"No column needs current ball ({current_ball_color}); recycling")
                 self._carriage.recycle_current_ball()
             else:
                 logging.error(
@@ -267,34 +271,18 @@ class MarbleMirror:
 
         for i in range(100):
 
-            logging.error("Reading current ball color")
-            # Get current ball color
-            current_ball_color = self._ball_reader.color
-
-            while current_ball_color is BallState.Empty:
-                logging.error("No current ball; pushing next ball")
-                # If there's no current next ball, push so we hopefully have a next ball
-                self._elevator.push_next_ball()
-                sleep(ELEVATOR_PUSH_WAIT_TIME_S)
-                logging.error("Reading current ball color")
-                # Get current ball color
-                current_ball_color = self._ball_reader.color
-
-            logging.error("Pushing next ball into carriage")
-            # If there is a current next ball, push so it goes into the carriage
             self._elevator.push_next_ball()
+            sleep(ELEVATOR_PUSH_WAIT_TIME_S)
+
+            logging.error("\n\nReading current ball color")
+            # Get current ball color
+            logging.error(f"Ball color is: {self._ball_reader.color}")
+
+            sleep(2.0)
 
             logging.error("Dropping ball")
             self._carriage.drop_ball()
-            '''
-            column_that_needs_current_ball = 3
-            logging.error(
-                f"Dropping ball in column {column_that_needs_current_ball}"
-            )
-            self._carriage.drop_ball_in_column_and_home(
-                column_that_needs_current_ball
-            )
-            '''
+
 
 
 
@@ -305,15 +293,36 @@ if __name__ == "__main__":
     # TODO: stepper at bottom too weak
     # TODO: get elevator wheel shape right
     # TODO: ball reader
+    # fiugre out where ball reader goes
+    # use plexiglas for column dividers
+    # make whole thing bigger
+    # rails, if doing that
+    # move limit switch
+    # make ball drop funnel thing narrower (basically one marble width)
+    # remove dead space
+    # maybe make recycling zone more tilted at end so balls don't get stuck
+    # make connect 4 drop servo work (is it a weird velocity one?)
+    # design in such a way that it can be scalable easily
     # 
 
-    mm = MarbleMirror(n_cols=4, n_rows=2)
-    mm.id_ball_loop()
+    mm = MarbleMirror(n_cols=8, n_rows=8)
+    # mm.id_ball_loop()
 
-    exit()
+    # exit()
     # img = [[0, 1, 0, 1], [1, 0, 1, 0]]
-    img = [[0, 1], [0, 1], [1, 0], [1, 0]]
+    # img = [[0, 1], [0, 1], [1, 0], [1, 0]]
 
+    # img = [[0, 1, 0, 1], [1, 0, 1, 0], [0, 1, 0, 1], [1, 0, 1, 0],]
+    img = [
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0, 0, 0, 1],
+        [0, 0, 1, 1, 1, 1, 1, 1],
+        [0, 0, 1, 0, 0, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 0, 0, 1, 0, 0],
+        [0, 0, 0, 1, 1, 1, 0, 0],
+        [0, 0, 0, 1, 0, 0, 0, 0],
+        ]
     mm.draw_image(img)
 
     # elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL)
