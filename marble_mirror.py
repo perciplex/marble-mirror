@@ -215,7 +215,6 @@ class MarbleMirror:
 
             # Get next column that we can drop this ball in
             valid_column = self._board.get_next_valid_column_for_color(cur_ball_color)
-            logging.info("Ball needed in column {valid_column}")
 
             # None corresponds to no columns need this color
             if valid_column is None:
@@ -224,10 +223,8 @@ class MarbleMirror:
                 )
                 self._carriage._ball_dropper.drop()
             else:
+                logging.info("Ball needed in column {valid_column}")
                 self._carriage.drop_ball_in_column_and_home(valid_column)
-
-        # sleep in case there's another image up next, and you want to see this one for some period
-        sleep(APPRECIATE_IMAGE_TIME)
 
     def clear_image(self) -> None:
         self._board_dropper.drop(delay=BOARD_DROP_SLEEP_TIME)
@@ -248,4 +245,7 @@ if __name__ == "__main__":
         [0, 0, 0, 1, 0, 0, 0, 0],
     ]
     mm.draw_image(img)
-    exit()
+
+    # sleep in case there's another image up next, and you want to see this one for some period
+    logging.info("Drawing of image completed! Sleeping to appreciate art.")
+    sleep(APPRECIATE_IMAGE_TIME)
