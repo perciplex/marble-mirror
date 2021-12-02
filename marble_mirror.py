@@ -33,6 +33,7 @@ ELEVATOR_STEP_SLEEP = 0.001  # Set
 ELEVATOR_PUSH_WAIT_TIME_S = 1.5  # How long it waits after pushing a ball to do a reading, before pushing again
 
 
+
 class ElevatorMoveDirection(IntEnum):
     BALL_UP = stepper.BACKWARD
     BALL_DOWN = stepper.FORWARD
@@ -157,12 +158,22 @@ class Carriage:
         sleep(0.5)
         self._ball_dropper.close()
 
+    @staticmethod
+    def location_steps(col):
+        if col == HOME_COLUMN_VALUE:
+            return 0
+        else:
+            return HOME_TO_FIRST_COLUMN_ADDITIONAL_OFFSET_STEPS + col * STEPS_PER_COLUMN
+
+    def steps_to_col(self, col):
+        return self.location_steps(col) - self.location_steps(self._cur_column)
+
     def go_to_column(self, target_column: int) -> None:
 
         logging.error(f"Carriage going to column {target_column}")
         # We want *this* var to be positive when going away. If you're currently in column 2 and want
         # to go to column 5, the distance_to_move > 0.
-        distance_to_move = int((target_column - self._cur_column) * STEPS_PER_COLUMN)
+        distance_to_move = self.steps_to_col(target_column)
 
         self._carriage_motor.move(distance_to_move, CarriageMoveDirection.AWAY)
         # TODO: make sure this either blocks, or sleep some amount during drive
@@ -176,7 +187,7 @@ class Carriage:
         
         # This is to move it a *little* away from the "home" position, so that if you move N columns away,
         # it will actually go to them (and not have any offset).
-        self._carriage_motor.move(HOME_TO_FIRST_COLUMN_ADDITIONAL_OFFSET_STEPS, CarriageMoveDirection.AWAY)
+        #self._carriage_motor.move(HOME_TO_FIRST_COLUMN_ADDITIONAL_OFFSET_STEPS, CarriageMoveDirection.AWAY)
         # Carriage should now be right at limit switch trigger
         self._cur_column = HOME_COLUMN_VALUE
 
