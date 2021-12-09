@@ -35,6 +35,7 @@ parser.add_argument("--carriage_servo_close", action="store_true")
 parser.add_argument("--carriage_servo_drop", action="store_true")
 parser.add_argument("--carriage_columns_away", type=int, default=None)
 parser.add_argument("--carriage_columns_towards", type=int, default=None)
+parser.add_argument("--image_drop", action='store_true')
 
 args = parser.parse_args()
 
@@ -89,6 +90,8 @@ if args.carriage_columns_towards is not None:
         sleep(0.1)
         test_carriage_one_column_towards()
 
+if args.image_drop:
+    test_image_drop()
 
 @click.group()
 @click.option("--debug/--no-debug", default=False)

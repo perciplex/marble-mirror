@@ -4,11 +4,9 @@ import logging
 from marble_control import BallReader, Gate, StepperMotor, LimitSwitch
 from marble_mirror import (
     CarriageMoveDirection,
-    Elevator,
     ELEVATOR_BALL_PUSH_STEPS,
     ElevatorMoveDirection,
     CarriageMotor,
-    CARRIAGE_MOTOR_COLUMN_STEPS,
     Carriage,
     ElevatorMoveDirection,
     CARRIAGE_SERVO_OPEN_ANGLE,
@@ -49,7 +47,7 @@ def test_stepper_2_reverse(move_amount=250):
 
 
 def test_elevator_push_ball():
-    stepper = Elevator(channel=2)
+    stepper = StepperMotor(channel=2)
     stepper.push_next_ball()
 
 
@@ -112,7 +110,7 @@ def test_carriage_close():
 
 def test_image_drop():
     servo = Gate(channel=12,
-        open_angle=CARRIAGE_SERVO_OPEN_ANGLE, closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE
+        open_angle=100, closed_angle=150
     )
     servo.open()
     time.sleep(1)

@@ -25,11 +25,11 @@ BOARD_DROP_SLEEP_TIME = 1.0
 ELEVATOR_STEPPER_CHANNEL = 2
 CARRIAGE_STEPPER_CHANNEL = 1
 CARRIAGE_SERVO_CHANNEL = 0
-BOARD_SERVO_CHANNEL = 1
+BOARD_SERVO_CHANNEL = 12
 CARRIAGE_SERVO_OPEN_ANGLE = 0
 CARRIAGE_SERVO_CLOSE_ANGLE = 15
-BOARD_SERVO_OPEN_ANGLE = 0
-BOARD_SERVO_CLOSE_ANGLE = 0
+BOARD_SERVO_OPEN_ANGLE = 120 # working was 100
+BOARD_SERVO_CLOSE_ANGLE = 130 # working was 150
 LIMIT_SWITCH_GPIO_PIN = 1
 HOME_COLUMN_VALUE = -1.3  # This needs to get calibrated to home offset from column 0
 ELEVATOR_BALL_PUSH_STEPS = 202  # Set intentionally
@@ -269,7 +269,6 @@ def goto(column):
     mm._carriage.go_to_column(int(column))
     logging.info(f"Arrived at column {column}")
 
-
 @cli.command()
 def lift():
     mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
@@ -280,9 +279,23 @@ def lift():
 @cli.command()
 def drop():
     mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
-    logging.info(f"Driving elevator one full rotation...")
+    logging.info(f"Dropping carriage ball...")
     mm._carriage._ball_dropper.drop()
-    logging.info(f"Done driving elevator.")
+    logging.info(f"Dropper dropped.")
+
+@cli.command()
+def read():
+    mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
+    logging.info(f"Reading from sensor...")
+    mm._ball_reader.color
+    logging.info(f"Reading completed.")
+
+@cli.command()
+def clear():
+    mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
+    logging.info(f"Clearing marble board...")
+    mm.clear_image()
+    logging.info(f"Board cleared.")
 
 @cli.command()
 def draw():

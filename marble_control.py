@@ -110,7 +110,6 @@ class BallReader:
     def color(self):
         raw = None
         while raw is None or 0 in raw:
-            logging.debug("raw color value", raw)
             raw = self.pixel.color_raw
         logging.debug(f"Pixel value {raw}")
         label = self.model.predict([raw])
