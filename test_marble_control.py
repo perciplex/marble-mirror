@@ -108,3 +108,12 @@ def test_carriage_close():
         open_angle=CARRIAGE_SERVO_OPEN_ANGLE, closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE
     )
     servo.close()
+
+
+def test_image_drop():
+    servo = Gate(channel=12,
+        open_angle=CARRIAGE_SERVO_OPEN_ANGLE, closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE
+    )
+    servo.open()
+    time.sleep(1)
+    servo.close()

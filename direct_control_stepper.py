@@ -15,6 +15,7 @@ from test_marble_control import (
     test_carriage_close,
     test_carriage_home,
     test_switch_value,
+    test_image_drop,
 )
 
 parser = argparse.ArgumentParser()

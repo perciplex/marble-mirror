@@ -17,7 +17,7 @@ from marble_control import (
 
 STEPS_PER_REV = 200.0
 MM_PER_REV = 8.0
-INTER_COLUMN_DISTANCE = 10.3  # (mm). Original (non rails) was 13.7
+INTER_COLUMN_DISTANCE = 11.613  # (mm). Original (non rails) was 13.7
 STEPS_PER_COLUMN = int(INTER_COLUMN_DISTANCE * STEPS_PER_REV / MM_PER_REV)
 APPRECIATE_IMAGE_TIME = 5.0
 BOARD_DROP_SLEEP_TIME = 1.0
@@ -26,12 +26,12 @@ ELEVATOR_STEPPER_CHANNEL = 2
 CARRIAGE_STEPPER_CHANNEL = 1
 CARRIAGE_SERVO_CHANNEL = 0
 BOARD_SERVO_CHANNEL = 1
-CARRIAGE_SERVO_OPEN_ANGLE = 140
-CARRIAGE_SERVO_CLOSE_ANGLE = 120
+CARRIAGE_SERVO_OPEN_ANGLE = 0
+CARRIAGE_SERVO_CLOSE_ANGLE = 15
 BOARD_SERVO_OPEN_ANGLE = 0
 BOARD_SERVO_CLOSE_ANGLE = 0
 LIMIT_SWITCH_GPIO_PIN = 1
-HOME_COLUMN_VALUE = -1  # This needs to get calibrated to home offset from column 0
+HOME_COLUMN_VALUE = -1.3  # This needs to get calibrated to home offset from column 0
 ELEVATOR_BALL_PUSH_STEPS = 202  # Set intentionally
 ELEVATOR_PUSH_WAIT_TIME_S = 1.5  # Wait after pushing a ball before reading
 
@@ -89,13 +89,11 @@ class MarbleBoard:
         self.print_board_queues()
 
     def print_board_queues(self):
-        logging.error(
+        logging.debug(
             f"Current state of internal queues: {[_ for _ in self._queues_list]}"
         )
-        # print(*(' '.join(row) for row in self._board_state), sep='\n')
-        # logging.error(f"Current expected board state: {np.array(self._board_state)}")
         for row in self._board_state:
-            print(*row, sep=", ")
+            logging.debug(row)
 
     def get_next_valid_column_for_color(self, ball_color: int) -> Optional[int]:
         logging.debug(f"Looking for valid column for ball color: = {ball_color}")
@@ -196,7 +194,7 @@ class MarbleMirror:
 
         # Main class for the whole mirror.
         self._board = MarbleBoard(n_cols=n_cols, n_rows=n_rows)
-        self._elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL)
+        self._elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL, step_sleep = 0.005)
         self._carriage = Carriage()
         self._board_dropper = Gate(
             open_angle=BOARD_SERVO_OPEN_ANGLE,
@@ -273,9 +271,18 @@ def goto(column):
 
 
 @cli.command()
-def test():
-    pass
+def lift():
+    mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
+    logging.info(f"Driving elevator one full rotation...")
+    mm._elevator.move(ELEVATOR_BALL_PUSH_STEPS, ElevatorMoveDirection.BALL_UP)
+    logging.info(f"Done driving elevator.")
 
+@cli.command()
+def drop():
+    mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
+    logging.info(f"Driving elevator one full rotation...")
+    mm._carriage._ball_dropper.drop()
+    logging.info(f"Done driving elevator.")
 
 @cli.command()
 def draw():

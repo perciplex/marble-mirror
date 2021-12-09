@@ -36,12 +36,12 @@ class Gate:
 
 
 class StepperMotor:
-    def __init__(self, channel: int) -> None:
+    def __init__(self, channel: int, step_sleep: int = 0) -> None:
         self.kit = MotorKit()
         self.stepper = getattr(self.kit, f"stepper{channel}")
+        self.step_sleep = step_sleep
 
-    @property
-    def can_step(self):
+    def can_step(self, direction):
         """Returns if the motor can step.
 
         Returns:
@@ -65,7 +65,7 @@ class StepperMotor:
                 break
             else:
                 self.stepper.onestep(direction=direction, style=stepper.DOUBLE)
-
+                sleep(self.step_sleep)
         self.release()
 
     def release(self):
@@ -106,20 +106,34 @@ class BallReader:
         with open(model_pickle_path, "rb") as handle:
             self.model = pickle.load(handle)
 
-    def read_sensor(self):
-        logging.info("Reading current ball color")
+    @property
+    def color(self):
         raw = None
         while raw is None or 0 in raw:
-            print("raw", raw)
+            logging.debug("raw color value", raw)
             raw = self.pixel.color_raw
+        logging.debug(f"Pixel value {raw}")
+        label = self.model.predict([raw])
+        color = self.vocab[label[0]]
+        logging.info(f"Detected ball color {color} {BallColor[color]}")
+        return color
 
-        logging.debug(f"Raw read color result (px value): {raw}")
-        return raw
+class BallReader2:
+    vocab = [BallState.Empty, BallState.Black, BallState.White]
+    def __init__(self, model_pickle_path='model_garbus.pickle'):
+        self.pixel = TCS34725(board.I2C())
+        self.pixel.integration_time = 2.4
+        self.pixel.gain = 4
+
+        with open(model_pickle_path, 'rb') as handle:
+            self.model = pickle.load(handle)
 
     @property
     def color(self):
-        label = self.model.predict([self.read_sensor])[0]
-        color = self.vocab[label]
-
-        logging.info(f"Detected ball color {color} {BallColor[color]}")
+        raw = None
+        while raw is None or 0 in raw:
+            logging.debug("raw color value", raw)
+            raw = self.pixel.color_raw
+        logging.debug(f"Pixel value {raw}")
+        label = self.model.predict([raw])
         return self.vocab[label[0]]
