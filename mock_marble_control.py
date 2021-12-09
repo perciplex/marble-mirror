@@ -1,15 +1,34 @@
-import abc
 import logging
-import pickle
 from enum import Enum
+import random
 from time import sleep
-
-import board
-import RPi.GPIO as GPIO
 from adafruit_motor import stepper
-from adafruit_motorkit import MotorKit
-from adafruit_servokit import ServoKit
-from adafruit_tcs34725 import TCS34725
+
+
+class ServoKit:
+    servo = {}
+
+    def __init__(self, channels):
+        for _ in range(channels):
+            self.servo[_] = Servo(_)
+
+
+class Servo:
+    def __init__(self, id):
+        pass
+
+
+class AdaStepperMotor:
+    def release(self):
+        pass
+
+    def onestep(self, direction, style):
+        pass
+
+
+class MotorKit:
+    stepper1 = AdaStepperMotor()
+    stepper2 = AdaStepperMotor()
 
 
 class Gate:
@@ -30,18 +49,20 @@ class Gate:
         logging.debug(f"Closed servo {self.servo}")
 
     def drop(self, delay=1):
+        logging.debug(f"Dropping servo {self.servo}")
         self.open()
+        logging.debug(f"Sleeping for {delay} on servo {self.servo}")
         sleep(delay)
         self.close()
 
 
 class StepperMotor:
-    def __init__(self, channel: int) -> None:
+    def __init__(self, channel: int, step_sleep: int = 0) -> None:
         self.kit = MotorKit()
         self.stepper = getattr(self.kit, f"stepper{channel}")
+        self.step_sleep = step_sleep
 
-    @property
-    def can_step(self):
+    def can_step(self, direction):
         """Returns if the motor can step.
 
         Returns:
@@ -50,7 +71,7 @@ class StepperMotor:
         return True
 
     def move(self, steps: int, direction: int) -> None:
-        """Take N steps in a specific direction while the stepper.can_step().
+        """Take N steps in a specific direction while the stpper.can_step().
         Releases the motor after the move is completed.
 
         Args:
@@ -65,6 +86,7 @@ class StepperMotor:
                 break
             else:
                 self.stepper.onestep(direction=direction, style=stepper.DOUBLE)
+                sleep(self.step_sleep)
 
         self.release()
 
@@ -78,11 +100,10 @@ class StepperMotor:
 class LimitSwitch:
     def __init__(self, pin=21):
         self.pin = pin
-        GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
 
     @property
     def is_pressed(self):
-        return GPIO.input(self.pin)
+        return True
 
 
 class BallState(Enum):
@@ -99,27 +120,15 @@ class BallReader:
     vocab = [BallState.Empty, BallState.Black, BallState.White]
 
     def __init__(self, model_pickle_path="model_garbus.pickle"):
-        self.pixel = TCS34725(board.I2C())
-        self.pixel.integration_time = 2.4
-        self.pixel.gain = 4
-
-        with open(model_pickle_path, "rb") as handle:
-            self.model = pickle.load(handle)
-
-    def read_sensor(self):
-        logging.info("Reading current ball color")
-        raw = None
-        while raw is None or 0 in raw:
-            print("raw", raw)
-            raw = self.pixel.color_raw
-
-        logging.debug(f"Raw read color result (px value): {raw}")
-        return raw
+        pass
 
     @property
     def color(self):
-        label = self.model.predict([self.read_sensor])[0]
-        color = self.vocab[label]
+        logging.info("Reading current ball color")
+        color = self.vocab[random.randrange(0, len(self.vocab))]
 
+        raw = None
+
+        logging.debug(f"Ball read color result: {color} (px value {raw})")
         logging.info(f"Detected ball color {color} {BallColor[color]}")
-        return self.vocab[label[0]]
+        return color

@@ -1,7 +1,7 @@
 import time
 import logging
 
-from marble_control import BallReader, Gate, StepperMotor, LimitSwitch, BallReaderKNN
+from marble_control import BallReader, Gate, StepperMotor, LimitSwitch
 from marble_mirror import (
     CarriageMoveDirection,
     Elevator,
@@ -92,7 +92,7 @@ def test_switch_down():
 
 
 def test_ball_reader_value():
-    ball_reader = BallReaderKNN()
+    ball_reader = BallReader()
     print(ball_reader.color)
 
 
