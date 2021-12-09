@@ -10,7 +10,6 @@ from adafruit_motor import stepper
 from marble_control import (
     BallReader,
     BallState,
-    BallColor,
     Gate,
     LimitSwitch,
     StepperMotor,
