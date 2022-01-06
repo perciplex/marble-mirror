@@ -28,8 +28,8 @@ CARRIAGE_SERVO_CHANNEL = 0
 BOARD_SERVO_CHANNEL = 12
 CARRIAGE_SERVO_OPEN_ANGLE = 0
 CARRIAGE_SERVO_CLOSE_ANGLE = 15
-BOARD_SERVO_OPEN_ANGLE = 120 # working was 100
-BOARD_SERVO_CLOSE_ANGLE = 130 # working was 150
+BOARD_SERVO_OPEN_ANGLE = 110
+BOARD_SERVO_CLOSE_ANGLE = 145
 LIMIT_SWITCH_GPIO_PIN = 1
 HOME_COLUMN_VALUE = -1.3  # This needs to get calibrated to home offset from column 0
 ELEVATOR_BALL_PUSH_STEPS = 202  # Set intentionally
@@ -115,7 +115,7 @@ class MarbleBoard:
 class CarriageMotor(StepperMotor):
     def __init__(self, channel: int):
         self._limit_switch = LimitSwitch()
-        super().__init__(channel=channel)
+        super().__init__(channel=channel, step_sleep=0.0006    )
 
     def can_step(self, direction):
         if direction == CarriageMoveDirection.HOME and self._limit_switch.is_pressed:
@@ -285,33 +285,37 @@ def drop():
 
 @cli.command()
 def read():
-    mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
+    _ball_reader = BallReader()
     logging.info(f"Reading from sensor...")
-    mm._ball_reader.color
+    _ball_reader.color
     logging.info(f"Reading completed.")
 
 @cli.command()
-def clear():
-    mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
-    logging.info(f"Clearing marble board...")
-    mm.clear_image()
-    logging.info(f"Board cleared.")
+@click.argument("open_angle", default=BOARD_SERVO_OPEN_ANGLE)
+@click.argument("close_angle", default=BOARD_SERVO_CLOSE_ANGLE)
+def clear(open_angle, close_angle):
+    _board_dropper = Gate(
+            open_angle=int(open_angle),
+            closed_angle=int(close_angle),
+            channel=int(BOARD_SERVO_CHANNEL),
+        )
+    _board_dropper.drop()
 
 @cli.command()
 def draw():
     mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
 
     img = [[1, 1], [0, 0]]
-    # img = [
-    #     [1, 1, 1, 1, 1, 1, 1, 1],
-    #     [0, 0, 0, 0, 0, 0, 0, 1],
-    #     [0, 0, 1, 1, 1, 1, 1, 1],
-    #     [0, 0, 1, 0, 0, 0, 0, 0],
-    #     [0, 0, 1, 1, 1, 1, 0, 0],
-    #     [0, 0, 0, 0, 0, 1, 0, 0],
-    #     [0, 0, 0, 1, 1, 1, 0, 0],
-    #     [0, 0, 0, 1, 0, 0, 0, 0],
-    # ]
+    img = [
+        [1, 1, 1, 1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0, 0, 0, 1],
+        [0, 0, 1, 1, 1, 1, 1, 1],
+        [0, 0, 1, 0, 0, 0, 0, 0],
+        [0, 0, 1, 1, 1, 1, 0, 0],
+        [0, 0, 0, 0, 0, 1, 0, 0],
+        [0, 0, 0, 1, 1, 1, 0, 0],
+        [0, 0, 0, 1, 0, 0, 0, 0],
+    ]
     logging.info("Drawing image...")
     mm.draw_image(img)
 
