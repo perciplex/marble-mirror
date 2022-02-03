@@ -1,6 +1,7 @@
-import abc
 import logging
 import pickle
+import re
+import serial
 from enum import Enum
 from time import sleep
 
@@ -29,10 +30,68 @@ class Gate:
         self.servo.angle = self.closed_angle
         logging.debug(f"Closed servo {self.servo}")
 
-    def drop(self, delay=1):
+    def drop(self, delay=0.2):
         self.open()
         sleep(delay)
         self.close()
+
+
+class GCodeMotor:
+    def __init__(self, axis, port="/dev/ttyACM0", baudrate=115200):
+        # setup that good feed rate
+        self.serial = serial.Serial(port, baudrate=baudrate)  # open serial port 115200
+        self.axis = axis
+
+        # Clear the first two erroneous messages
+        status = self.serial.readline()
+        status = self.serial.readline()
+
+        # set steps per rev
+        # 200 steps / rev    8mm / rev 
+        # https://github.com/gnea/grbl/wiki/Grbl-v1.1-Configuration
+        self.serial.write(f"$102={200 / 8}\n".encode())
+        # Homing enable
+        self.serial.write(f"$22=1\n".encode())
+        # homing direction negative
+        self.serial.write(f"$23=7\n".encode())
+
+        # set x y max homing travel distance to 0
+        self.serial.write(f"$130=0\n".encode())
+        self.serial.write(f"$131=0\n".encode())
+        # set z max homing travel distance to 200mm
+        self.serial.write(f"$132=200\n".encode())
+        self.serial.reset_input_buffer()
+
+    def move(self, pos):
+        self.serial.write(f"G0 {self.axis}{pos}\n".encode())
+
+    def home(self):
+        # https://github.com/gnea/grbl/wiki/Set-up-the-Homing-Cycle
+        # Spindle enable is pin 12 which is what grbl is expecting for the Z limit switch
+        self.serial.write(b"$H\n")
+
+    def status_string(self):
+        self.serial.reset_output_buffer()
+        self.serial.reset_input_buffer()
+        self.serial.write(b"?\n")
+        status = self.serial.readline()
+        print(status)
+        return status
+
+    def lim(self):
+        status = self.status_string()
+        result = re.search(r"Lim:(?P<X>\d)(?P<Y>\d)(?P<Z>\d)", str(status))
+        return {k: bool(int(v)) for k, v in result.groupdict().items()}
+
+    def pos(self):
+        status = self.status_string()
+        result = re.search(
+            r"MPos:(?P<X>\d+\.\d+),(?P<Y>\d+\.\d+),(?P<Z>\d+\.\d+)", str(status)
+        )
+        return {k: float(v) for k, v in result.groupdict().items()}
+
+    def __del__(self):
+        self.serial.close()
 
 
 class StepperMotor:
@@ -98,7 +157,7 @@ BallColor = {BallState.Black: "⚫", BallState.White: "⚪", BallState.Empty: "�
 class BallReader:
     vocab = [BallState.Empty, BallState.Black, BallState.White]
 
-    def __init__(self, model_pickle_path="model_garbus.pickle"):
+    def __init__(self, model_pickle_path="model_hambone.pickle"):
         self.pixel = TCS34725(board.I2C())
         self.pixel.integration_time = 2.4
         self.pixel.gain = 4
@@ -117,14 +176,16 @@ class BallReader:
         logging.info(f"Detected ball color {color} {BallColor[color]}")
         return color
 
+
 class BallReader2:
     vocab = [BallState.Empty, BallState.Black, BallState.White]
-    def __init__(self, model_pickle_path='model_garbus.pickle'):
+
+    def __init__(self, model_pickle_path="model_garbus.pickle"):
         self.pixel = TCS34725(board.I2C())
         self.pixel.integration_time = 2.4
         self.pixel.gain = 4
 
-        with open(model_pickle_path, 'rb') as handle:
+        with open(model_pickle_path, "rb") as handle:
             self.model = pickle.load(handle)
 
     @property

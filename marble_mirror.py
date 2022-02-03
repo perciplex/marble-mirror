@@ -13,12 +13,16 @@ from marble_control import (
     Gate,
     LimitSwitch,
     StepperMotor,
+    GCodeMotor
 )
+from gcode import GCodeBoard
+
 
 STEPS_PER_REV = 200.0
 MM_PER_REV = 8.0
 INTER_COLUMN_DISTANCE = 11.613  # (mm). Original (non rails) was 13.7
-STEPS_PER_COLUMN = int(INTER_COLUMN_DISTANCE * STEPS_PER_REV / MM_PER_REV)
+# STEPS_PER_COLUMN = int(INTER_COLUMN_DISTANCE * STEPS_PER_REV / MM_PER_REV)
+STEPS_PER_COLUMN = 7.874
 APPRECIATE_IMAGE_TIME = 5.0
 BOARD_DROP_SLEEP_TIME = 1.0
 # The wire with a ziptie on it is for the elevator stepper.
@@ -31,11 +35,12 @@ CARRIAGE_SERVO_CLOSE_ANGLE = 15
 BOARD_SERVO_OPEN_ANGLE = 110
 BOARD_SERVO_CLOSE_ANGLE = 145
 LIMIT_SWITCH_GPIO_PIN = 1
-HOME_COLUMN_VALUE = -1.3  # This needs to get calibrated to home offset from column 0
+HOME_COLUMN_VALUE = 0.  # This needs to get calibrated to home offset from column 0
 ELEVATOR_BALL_PUSH_STEPS = 202  # Set intentionally
-ELEVATOR_PUSH_WAIT_TIME_S = 1.5  # Wait after pushing a ball before reading
+ELEVATOR_PUSH_WAIT_TIME_S = 0.5  # Wait after pushing a ball before reading
+HOME_TO_FIRST_COLUMN_DISTANCE_MM = 8.5
 
-N_COLS = 8
+N_COLS = 15
 N_ROWS = 8
 
 
@@ -111,31 +116,17 @@ class MarbleBoard:
     def done(self) -> bool:
         return all([len(q) == 0 for q in self._queues_list])
 
-
-class CarriageMotor(StepperMotor):
-    def __init__(self, channel: int):
-        self._limit_switch = LimitSwitch()
-        super().__init__(channel=channel, step_sleep=0.0006    )
-
-    def can_step(self, direction):
-        if direction == CarriageMoveDirection.HOME and self._limit_switch.is_pressed:
-            logging.debug(
-                f"Cant take step in direction {direction}, limit switch is pressed!"
-            )
-            return False
-        else:
-            return True
-
-
 class Carriage:
-    def __init__(self) -> None:
+    def __init__(self, gcode_board: GCodeBoard) -> None:
         self._ball_dropper = Gate(
             open_angle=CARRIAGE_SERVO_OPEN_ANGLE,
             closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE,
             channel=CARRIAGE_SERVO_CHANNEL,
         )
-        self._carriage_motor = CarriageMotor(channel=CARRIAGE_STEPPER_CHANNEL)
+        self._gcode_board = gcode_board
+        # self._carriage_motor = GCodeMotor(channel=CARRIAGE_STEPPER_CHANNEL)
         self._cur_column = None
+        self._ball_dropper.drop()
 
     def drop_ball_in_column_and_home(self, target_column: int) -> None:
         """Go to target column, drop the ball, and then return home.
@@ -157,25 +148,14 @@ class Carriage:
         Args:
             target_column (int): The target column to go to.
         """
-        if not self._cur_column:
-            self.go_home()
 
         logging.debug(
             f"Carriage going from {self._cur_column} to column {target_column}"
         )
 
         # Calculate the number of steps to take based on current position
-        steps = int((target_column - self._cur_column) * STEPS_PER_COLUMN)
-
-        if steps > 0:
-            # Moving away from home. Set direction.
-            direction = CarriageMoveDirection.AWAY
-        else:
-            # Moving towards home. Set direction and abs(steps)
-            direction = CarriageMoveDirection.HOME
-            steps = abs(steps)
-
-        self._carriage_motor.move(steps, direction)
+        steps = HOME_TO_FIRST_COLUMN_DISTANCE_MM + target_column * STEPS_PER_COLUMN
+        self._gcode_board.move('X', steps)
         self._cur_column = target_column
 
     def go_home(self) -> None:
@@ -183,19 +163,26 @@ class Carriage:
         Then sets current column to the HOME_COLUMN_VALUE
         """
         logging.info("Carriage going home.")
-        # While the carriage can still move towards home, keep moving.
-        while self._carriage_motor.can_step(CarriageMoveDirection.HOME):
-            self._carriage_motor.move(100, CarriageMoveDirection.HOME)
+        self._gcode_board.move('X', 0)
         self._cur_column = HOME_COLUMN_VALUE
 
+
+class Elevator:
+    def __init__(self, gcode_board: GCodeBoard) -> None:
+        self._gcode_board = gcode_board
+
+    def push_one_ball(self):
+        self._gcode_board.move_Y_one_rotation()
 
 class MarbleMirror:
     def __init__(self, n_cols: int, n_rows: int) -> None:
 
         # Main class for the whole mirror.
+        self._gcode_board = GCodeBoard(port="/dev/ttyUSB0")
         self._board = MarbleBoard(n_cols=n_cols, n_rows=n_rows)
-        self._elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL, step_sleep = 0.005)
-        self._carriage = Carriage()
+        # self._elevator = StepperMotor(channel=ELEVATOR_STEPPER_CHANNEL, step_sleep = 0.005)
+        self._elevator = Elevator(self._gcode_board)
+        self._carriage = Carriage(self._gcode_board)
         self._board_dropper = Gate(
             open_angle=BOARD_SERVO_OPEN_ANGLE,
             closed_angle=BOARD_SERVO_CLOSE_ANGLE,
@@ -222,9 +209,7 @@ class MarbleMirror:
             while cur_ball_color is BallState.Empty:
                 logging.info("No current ball; pushing next ball...")
                 # There is no current ball, push until we get one.
-                self._elevator.move(
-                    ELEVATOR_BALL_PUSH_STEPS, ElevatorMoveDirection.BALL_UP
-                )
+                self._elevator.push_one_ball()
                 sleep(ELEVATOR_PUSH_WAIT_TIME_S)
                 cur_ball_color = self._ball_reader.color
 
@@ -305,16 +290,15 @@ def clear(open_angle, close_angle):
 def draw():
     mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
 
-    img = [[1, 1], [0, 0]]
     img = [
-        [1, 1, 1, 1, 1, 1, 1, 1],
-        [0, 0, 0, 0, 0, 0, 0, 1],
-        [0, 0, 1, 1, 1, 1, 1, 1],
-        [0, 0, 1, 0, 0, 0, 0, 0],
-        [0, 0, 1, 1, 1, 1, 0, 0],
-        [0, 0, 0, 0, 0, 1, 0, 0],
-        [0, 0, 0, 1, 1, 1, 0, 0],
-        [0, 0, 0, 1, 0, 0, 0, 0],
+        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+        [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+        [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+        [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
+        [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
     ]
     logging.info("Drawing image...")
     mm.draw_image(img)
