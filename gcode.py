@@ -35,8 +35,8 @@ class GCodeBoard:
 
         # Set max X speed to 8000 mm/min, accel to 2000 mm/ss
         self.write("$110=6000")
-        self.write("$120=1500")
-        
+        self.write("$120=300")
+
         # Set max Y speed to 8000 mm/min, accel to 2000 mm/ss
         self.write("$111=100")
         if home:

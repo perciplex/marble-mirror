@@ -3,6 +3,7 @@ import numpy as np
 from enum import IntEnum
 from time import sleep
 from typing import List, Optional
+import numpy as np
 
 import click
 from adafruit_motor import stepper
@@ -16,7 +17,8 @@ from marble_control import (
     GCodeMotor
 )
 from gcode import GCodeBoard
-
+import pickle
+from sklearn.cluster import KMeans
 
 STEPS_PER_REV = 200.0
 MM_PER_REV = 8.0
@@ -30,8 +32,8 @@ ELEVATOR_STEPPER_CHANNEL = 2
 CARRIAGE_STEPPER_CHANNEL = 1
 CARRIAGE_SERVO_CHANNEL = 0
 BOARD_SERVO_CHANNEL = 12
-CARRIAGE_SERVO_OPEN_ANGLE = 0
-CARRIAGE_SERVO_CLOSE_ANGLE = 15
+CARRIAGE_SERVO_OPEN_ANGLE = 40
+CARRIAGE_SERVO_CLOSE_ANGLE = 150
 BOARD_SERVO_OPEN_ANGLE = 110
 BOARD_SERVO_CLOSE_ANGLE = 145
 LIMIT_SWITCH_GPIO_PIN = 1
@@ -39,6 +41,7 @@ HOME_COLUMN_VALUE = 0.  # This needs to get calibrated to home offset from colum
 ELEVATOR_BALL_PUSH_STEPS = 202  # Set intentionally
 ELEVATOR_PUSH_WAIT_TIME_S = 0.5  # Wait after pushing a ball before reading
 HOME_TO_FIRST_COLUMN_DISTANCE_MM = 8.5
+MAX_BALLS_IN_CARRIAGE = 4
 
 N_COLS = 15
 N_ROWS = 8
@@ -139,6 +142,18 @@ class Carriage:
         self._ball_dropper.drop()
         self.go_home()
 
+
+    def drop_ball_in_column(self, target_column: int) -> None:
+        """Go to target column, drop the ball, and then return home.
+
+        Args:
+            target_column (int): Target column to drop ball in.
+        """
+        logging.debug(f"Dropping ball in column {target_column}")
+        self.go_to_column(target_column)
+        self._ball_dropper.drop()
+
+
     def go_to_column(self, target_column: int) -> None:
         """Move the carriage to the target column. Calculates the inter-column
         distance, converts to stepper steps, and determines the direction.
@@ -203,16 +218,24 @@ class MarbleMirror:
         # Set the new image that we'll be drawing
         self._board.set_new_board(image)
         self._carriage.go_home()
+        self._carriage._ball_dropper.drop()
         while not self._board.done():
             # Push elevator until we have a ball in the cart
             cur_ball_color = self._ball_reader.color
-            while cur_ball_color is BallState.Empty:
-                logging.info("No current ball; pushing next ball...")
-                # There is no current ball, push until we get one.
-                self._elevator.push_one_ball()
-                sleep(ELEVATOR_PUSH_WAIT_TIME_S)
-                cur_ball_color = self._ball_reader.color
+            
+            # if cur_ball_color is BallState.Empty:
+            #     # self._carriage._ball_dropper.jitter()
+            #     cur_ball_color = self._ball_reader.color
 
+            while cur_ball_color is BallState.Empty:
+                logging.info("No current ball; homing and refilling")               
+                # There is no current ball, push until we get one.
+                self._carriage.go_home()
+                # self._carriage._ball_dropper.drop()
+                for _ in range(MAX_BALLS_IN_CARRIAGE):
+                    self._elevator.push_one_ball()
+                cur_ball_color = self._ball_reader.color
+            
             # Get next column that we can drop this ball in
             valid_column = self._board.get_next_valid_column_for_color(cur_ball_color)
 
@@ -221,10 +244,12 @@ class MarbleMirror:
                 logging.info(
                     f"No column needs current ball ({cur_ball_color}); recycling"
                 )
+                self._carriage.go_home()
                 self._carriage._ball_dropper.drop()
             else:
                 logging.info(f"Delivering ball to col {valid_column}.")
-                self._carriage.drop_ball_in_column_and_home(valid_column)
+                self._carriage.drop_ball_in_column(valid_column)
+
             self._board.print_board_queues()
 
     def clear_image(self) -> None:
@@ -263,10 +288,28 @@ def lift():
 
 @cli.command()
 def drop():
-    mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
+    test_angle = 90
+    ball_dropper = Gate(
+            open_angle=test_angle - 50, # default 0
+            closed_angle=test_angle + 40,  # default 15
+            channel=CARRIAGE_SERVO_CHANNEL,
+        )
     logging.info(f"Dropping carriage ball...")
-    mm._carriage._ball_dropper.drop()
+    ball_dropper.drop(delay=0.5)
     logging.info(f"Dropper dropped.")
+
+@cli.command()
+def jitter():
+    test_angle = 90
+    ball_dropper = Gate(
+            open_angle=CARRIAGE_SERVO_OPEN_ANGLE, # default 0
+            closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE,  # default 15
+            channel=CARRIAGE_SERVO_CHANNEL,
+        )
+    logging.info(f"Dropping carriage ball...")
+    ball_dropper.jitter()
+    logging.info(f"Dropper dropped.")
+
 
 @cli.command()
 def read():
@@ -290,21 +333,122 @@ def clear(open_angle, close_angle):
 def draw():
     mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
 
+    '''img = [
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1],
+        [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+    ]'''
     img = [
-        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-        [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-        [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-        [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
-        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1],
-        [0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
     ]
     logging.info("Drawing image...")
     mm.draw_image(img)
 
     logging.info("Drawing of image completed! Sleeping to appreciate art.")
     sleep(APPRECIATE_IMAGE_TIME)
+
+@cli.command()
+def auto_calibrate():
+    mm = MarbleMirror(1, 1)
+    car = mm._carriage
+    ball = mm._ball_reader.pixel
+    elevator = mm._elevator
+
+    car.go_home()
+    logging.info("Auto calibrating...")
+
+    def measure(t=1, drop=True, push=True):
+        if drop:
+            car._ball_dropper.drop()    
+        if push:
+            elevator.push_one_ball()
+        sleep(t)
+        data = None 
+        while not data or 0 in data:
+            data = ball.color_raw
+
+        print(data)
+
+        return data
+
+
+    def get_labels_to_colors(kmeans_model, kmeans_data):
+        
+        white_label = np.argmax(np.linalg.norm(kmeans_model.cluster_centers_, axis=1))
+        empty_label = kmeans_model.predict(kmeans_data[0:1])[0]
+        black_label = [i for i in range(3) if i not in [white_label, empty_label]][0]
+        return {
+            white_label: 'white',
+            empty_label: 'empty',
+            black_label:  'black',
+        }
+
+    def collect_calibration_data():
+
+        all_data =[]
+        # definitely empty it
+        logging.info('\nEmptying...')
+        for _ in range(10):
+            car._ball_dropper.drop()
+        logging.info('\nEmpty:')
+        empty_data = [measure(push=False) for _ in range(5)]  # read empty
+        all_data += empty_data
+        logging.info('\nBalls:')
+        non_empty_data = [measure(push=True) for _ in range(15)]  # read ballz
+        all_data += non_empty_data
+        
+        return empty_data, non_empty_data, all_data
+
+
+    def collect_data_fit_model():
+        logging.info('\nCollecting data...')
+        empty_data, non_empty_data, all_data = collect_calibration_data()
+        
+        logging.info('\nDone, fitting model...')
+        kmeans = KMeans(n_clusters=3, random_state=666).fit(all_data)
+        logging.info('\nLabels of data; does this look right?\n')
+        logging.info(kmeans.labels_)
+        
+        labels_to_colors = get_labels_to_colors(kmeans, all_data)
+        logging.info('\nLabels to colors:')
+        [logging.info(f'{k} = {v}') for k, v in labels_to_colors.items()]
+        
+        return kmeans, labels_to_colors
+
+
+    def create_model_and_predict(model_name):
+        
+        kmeans, labels_to_colors = collect_data_fit_model()
+        logging.info('\nPredicting with trained model now...')
+        for i in range(30):
+            datum = measure(push=True)
+            pred = kmeans.predict([datum])[0]
+            score = kmeans.score([datum])
+            logging.info('Data = {},\tColor = {},\tScore = {:.3f}'.format(datum, labels_to_colors[pred], score))
+        
+        # Dump model and vocab
+        d = {
+            'vocab': labels_to_colors,
+            'model': kmeans
+        }    
+        with open(f'{model_name}.pickle', 'wb') as handle:
+            pickle.dump(d, handle)
+    
+    model_name = 'model_brig_weird_instruction'
+    create_model_and_predict(model_name)
+    logging.info(f'Wrote auto calibrated model to {model_name}')
 
 
 if __name__ == "__main__":

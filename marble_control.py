@@ -30,10 +30,24 @@ class Gate:
         self.servo.angle = self.closed_angle
         logging.debug(f"Closed servo {self.servo}")
 
-    def drop(self, delay=0.2):
+    def drop(self, delay=0.4):
+        """Open the gate, sleep the delay, then close the gate, and sleep the delay."
+        """
         self.open()
         sleep(delay)
         self.close()
+        sleep(1)
+
+    def jitter(self, delay=0.2):
+        """Open the gate, sleep the delay, then close the gate, and sleep the delay."
+        """
+
+        for i in range(30):
+            self.servo.angle = self.closed_angle + 6 * (-1) ** i
+            sleep(0.03)
+        
+        self.close()
+        sleep(2)
 
 
 class GCodeMotor:
@@ -155,15 +169,22 @@ BallColor = {BallState.Black: "⚫", BallState.White: "⚪", BallState.Empty: "�
 
 
 class BallReader:
-    vocab = [BallState.Empty, BallState.Black, BallState.White]
-
-    def __init__(self, model_pickle_path="model_hambone.pickle"):
+    # vocab = [BallState.Empty, BallState.Black, BallState.White]
+    color_str_to_enum = {
+        'empty': BallState.Empty,
+        'black': BallState.Black,
+        'white': BallState.White,
+    }
+    def __init__(self, model_pickle_path="model_brig_weird_instruction.pickle"):
         self.pixel = TCS34725(board.I2C())
         self.pixel.integration_time = 2.4
         self.pixel.gain = 4
 
         with open(model_pickle_path, "rb") as handle:
-            self.model = pickle.load(handle)
+            model_and_vocab = pickle.load(handle)
+        
+        self.model = model_and_vocab['model']
+        self.vocab = model_and_vocab['vocab']
 
     @property
     def color(self):
@@ -172,7 +193,8 @@ class BallReader:
             raw = self.pixel.color_raw
         logging.debug(f"Pixel value {raw}")
         label = self.model.predict([raw])
-        color = self.vocab[label[0]]
+        color_str = self.vocab[label[0]]
+        color = self.color_str_to_enum[color_str]
         logging.info(f"Detected ball color {color} {BallColor[color]}")
         return color
 
