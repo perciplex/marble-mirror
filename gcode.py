@@ -55,9 +55,9 @@ class GCodeBoard:
         self.write(f"G0 {axis}{pos}")
         self.block_until_move()
 
-    def move_Y_one_rotation(self):
+    def move_Y_n_rotation(self, n):
         self.write("G91")
-        self.write("Y1")
+        self.write(f"Y{n}")
         self.write("G90")
         self.block_until_move()
 

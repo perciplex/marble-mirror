@@ -4,6 +4,7 @@ import re
 import serial
 from enum import Enum
 from time import sleep
+import numpy as np
 
 import board
 import RPi.GPIO as GPIO
@@ -11,6 +12,7 @@ from adafruit_motor import stepper
 from adafruit_motorkit import MotorKit
 from adafruit_servokit import ServoKit
 from adafruit_tcs34725 import TCS34725
+from picamera import PiCamera
 
 
 class Gate:
@@ -36,7 +38,7 @@ class Gate:
         self.open()
         sleep(delay)
         self.close()
-        sleep(1)
+        sleep(0.5)
 
     def jitter(self, delay=0.2):
         """Open the gate, sleep the delay, then close the gate, and sleep the delay."
@@ -219,3 +221,26 @@ class BallReader2:
         logging.debug(f"Pixel value {raw}")
         label = self.model.predict([raw])
         return self.vocab[label[0]]
+
+
+
+class Camera:
+
+    def __init__(self):
+        self._camera = PiCamera()
+
+
+    @property
+    def color_raw(self):
+        self._camera.resolution = (320, 240)
+        self._camera.framerate = 24
+        sleep(1)
+        output = np.empty((240, 320, 3), dtype=np.uint8)
+        self._camera.capture(output, 'rgb')
+        return output.flatten()
+    
+
+    def __del__(self):
+        print('Closing camera...')
+        self._camera.close()
+        print('Closed')

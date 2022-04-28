@@ -14,7 +14,8 @@ from marble_control import (
     Gate,
     LimitSwitch,
     StepperMotor,
-    GCodeMotor
+    GCodeMotor,
+    Camera,
 )
 from gcode import GCodeBoard
 import pickle
@@ -41,7 +42,7 @@ HOME_COLUMN_VALUE = 0.  # This needs to get calibrated to home offset from colum
 ELEVATOR_BALL_PUSH_STEPS = 202  # Set intentionally
 ELEVATOR_PUSH_WAIT_TIME_S = 0.5  # Wait after pushing a ball before reading
 HOME_TO_FIRST_COLUMN_DISTANCE_MM = 8.5
-MAX_BALLS_IN_CARRIAGE = 4
+CARRIAGE_CAPACITY = 4
 
 N_COLS = 15
 N_ROWS = 8
@@ -55,6 +56,9 @@ class ElevatorMoveDirection(IntEnum):
 class CarriageMoveDirection(IntEnum):
     AWAY = stepper.BACKWARD
     HOME = stepper.FORWARD
+
+def column_valid_for_color(col: List[int], ball_color: int):
+    return len(col) and col[-1] == ball_color.value
 
 
 class MarbleBoard:
@@ -115,6 +119,42 @@ class MarbleBoard:
 
         # If we didn't find any, return None
         return None
+    
+    def get_closest_valid_column_for_color(self, ball_color: int, current_col: int) -> Optional[int]:
+        logging.debug(f"Looking for closest valid column for ball color: = {ball_color}")
+        valid_columns = [col for (col, queue) in enumerate(self._queues_list) if column_valid_for_color(queue, ball_color)]
+        if valid_columns:
+            target_col = min(valid_columns, key=lambda col: abs(col-current_col))
+            self._queues_list[target_col].pop()
+            return target_col
+        # If we didn't find any, return None
+        return None
+
+    def get_valid_column_for_color_and_minimize_diff(self, ball_color: int, current_col: int) -> Optional[int]:
+        logging.debug(f"Looking for column for ball color: = {ball_color}")
+        valid_columns = [col for (col, queue) in enumerate(self._queues_list) if column_valid_for_color(queue, ball_color)]
+        
+        # If we didn't find any, return None
+        if len(valid_columns) == 0:
+            return None
+        
+        frontier_balls = [queue[-1] for queue in self._queues_list if len(queue)]
+        n_white_balls = sum([b for b in frontier_balls if b == BallState.White.value])
+        n_black_balls = sum([b for b in frontier_balls if b == BallState.Black.value])
+        
+        ball_most_needed = 'either' if (n_black_balls == n_white_balls) else (BallState.Black.value if n_black_balls < n_white_balls else BallState.White.value)
+
+        # find the columns that have the ball we most want after the bottom one
+        valid_columns_with_needed_ball_next = [col for (col, queue) in enumerate(self._queues_list) if len(queue) >= 2 and queue[-2] == ball_most_needed and queue[-1] == ball_color.value]
+        # if they exist, find the closest one
+        if valid_columns_with_needed_ball_next:
+            target_col = min(valid_columns_with_needed_ball_next, key=lambda col: abs(col-current_col))
+            self._queues_list[target_col].pop()
+            return target_col
+        else:
+            target_col = min(valid_columns, key=lambda col: abs(col-current_col))
+            self._queues_list[target_col].pop()
+            return target_col
 
     def done(self) -> bool:
         return all([len(q) == 0 for q in self._queues_list])
@@ -187,7 +227,10 @@ class Elevator:
         self._gcode_board = gcode_board
 
     def push_one_ball(self):
-        self._gcode_board.move_Y_one_rotation()
+        self._gcode_board.move_Y_n_rotation(1)
+
+    def fill_carriage(self):
+        self._gcode_board.move_Y_n_rotation(CARRIAGE_CAPACITY)
 
 class MarbleMirror:
     def __init__(self, n_cols: int, n_rows: int) -> None:
@@ -203,7 +246,8 @@ class MarbleMirror:
             closed_angle=BOARD_SERVO_CLOSE_ANGLE,
             channel=BOARD_SERVO_CHANNEL,
         )
-        self._ball_reader = BallReader()
+        # self._ball_reader = BallReader()
+        self._ball_reader = Camera()
 
     def draw_image(self, image: List[List[int]]) -> None:
 
@@ -232,12 +276,11 @@ class MarbleMirror:
                 # There is no current ball, push until we get one.
                 self._carriage.go_home()
                 # self._carriage._ball_dropper.drop()
-                for _ in range(MAX_BALLS_IN_CARRIAGE):
-                    self._elevator.push_one_ball()
+                self._elevator.fill_carriage()
                 cur_ball_color = self._ball_reader.color
-            
+
             # Get next column that we can drop this ball in
-            valid_column = self._board.get_next_valid_column_for_color(cur_ball_color)
+            valid_column = self._board.get_valid_column_for_color_and_minimize_diff(cur_ball_color, self._carriage._cur_column)
 
             # None corresponds to no columns need this color
             if valid_column is None:
@@ -343,15 +386,26 @@ def draw():
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     ]'''
+    '''img = [
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+    ]'''
     img = [
-        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
-        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
-        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
-        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+
+        [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1],
+        [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ]
     logging.info("Drawing image...")
     mm.draw_image(img)
@@ -359,11 +413,14 @@ def draw():
     logging.info("Drawing of image completed! Sleeping to appreciate art.")
     sleep(APPRECIATE_IMAGE_TIME)
 
+
+
 @cli.command()
 def auto_calibrate():
     mm = MarbleMirror(1, 1)
     car = mm._carriage
-    ball = mm._ball_reader.pixel
+    # ball = mm._ball_reader.pixel
+    ball = mm._ball_reader
     elevator = mm._elevator
 
     car.go_home()
@@ -376,10 +433,11 @@ def auto_calibrate():
             elevator.push_one_ball()
         sleep(t)
         data = None 
-        while not data or 0 in data:
+        # while not data or 0 in data:
+        while not data:
             data = ball.color_raw
 
-        print(data)
+        # print(data)
 
         return data
 
@@ -450,6 +508,13 @@ def auto_calibrate():
     create_model_and_predict(model_name)
     logging.info(f'Wrote auto calibrated model to {model_name}')
 
+
+@cli.command()
+def camera_read():
+    ball_reader = Camera()
+    color = ball_reader.color_raw
+    print(color.shape)
+    print(color[:10])
 
 if __name__ == "__main__":
     draw()
