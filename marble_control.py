@@ -38,7 +38,7 @@ class Gate:
         self.open()
         sleep(delay)
         self.close()
-        sleep(0.5)
+        sleep(0.2)
 
     def jitter(self, delay=0.2):
         """Open the gate, sleep the delay, then close the gate, and sleep the delay."
@@ -225,16 +225,43 @@ class BallReader2:
 
 
 class Camera:
-
-    def __init__(self):
+    color_str_to_enum = {
+        'empty': BallState.Empty,
+        'black': BallState.Black,
+        'white': BallState.White,
+    }
+    def __init__(self, model_pickle_path=None):
         self._camera = PiCamera()
+        self.model = None
+        self.vocab = None
+        if model_pickle_path is not None:
+            with open(model_pickle_path, "rb") as handle:
+                model_and_vocab = pickle.load(handle)
+            
+            self.model = model_and_vocab['model']
+            self.vocab = model_and_vocab['vocab']
 
+    @property
+    def color(self):
+        assert self.model is not None
+        assert self.vocab is not None
+
+        raw = None
+        while raw is None:
+            raw = self.color_raw
+        logging.debug(f"Pixel value {raw}")
+        label = self.model.predict([raw])
+        color_str = self.vocab[label[0]]
+        color = self.color_str_to_enum[color_str]
+        logging.info(f"Detected ball color {color} {BallColor[color]}")
+        return color
+    
 
     @property
     def color_raw(self):
         self._camera.resolution = (320, 240)
         self._camera.framerate = 24
-        sleep(1)
+        sleep(0.2)
         output = np.empty((240, 320, 3), dtype=np.uint8)
         self._camera.capture(output, 'rgb')
         return output.flatten()

@@ -233,7 +233,7 @@ class Elevator:
         self._gcode_board.move_Y_n_rotation(CARRIAGE_CAPACITY)
 
 class MarbleMirror:
-    def __init__(self, n_cols: int, n_rows: int) -> None:
+    def __init__(self, n_cols: int, n_rows: int, model_pickle_path="model_brig_weird_instruction.pickle") -> None:
 
         # Main class for the whole mirror.
         self._gcode_board = GCodeBoard(port="/dev/ttyUSB0")
@@ -247,7 +247,7 @@ class MarbleMirror:
             channel=BOARD_SERVO_CHANNEL,
         )
         # self._ball_reader = BallReader()
-        self._ball_reader = Camera()
+        self._ball_reader = Camera(model_pickle_path=model_pickle_path)
 
     def draw_image(self, image: List[List[int]]) -> None:
 
@@ -370,13 +370,13 @@ def clear(open_angle, close_angle):
             closed_angle=int(close_angle),
             channel=int(BOARD_SERVO_CHANNEL),
         )
-    _board_dropper.drop()
+    _board_dropper.drop(delay=1)
 
 @cli.command()
 def draw():
     mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
 
-    '''img = [
+    img = [
         [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
@@ -385,19 +385,22 @@ def draw():
         [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-    ]'''
-    '''img = [
-        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
-        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
-        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
-        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
-        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
-    ]'''
+    ]
+    '''
     img = [
-
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+        [0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],
+        [0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0],
+    ]
+    '''
+    '''
+    img = [
+        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
@@ -405,8 +408,8 @@ def draw():
         [1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     ]
+    '''
     logging.info("Drawing image...")
     mm.draw_image(img)
 
@@ -417,7 +420,8 @@ def draw():
 
 @cli.command()
 def auto_calibrate():
-    mm = MarbleMirror(1, 1)
+    # pass None as the path, so the Camera obj won't try to load it.
+    mm = MarbleMirror(1, 1, model_pickle_path=None)
     car = mm._carriage
     # ball = mm._ball_reader.pixel
     ball = mm._ball_reader
@@ -433,20 +437,20 @@ def auto_calibrate():
             elevator.push_one_ball()
         sleep(t)
         data = None 
-        # while not data or 0 in data:
-        while not data:
+
+        while data is None:
             data = ball.color_raw
 
-        # print(data)
+        print('data array sum = {:.4f}'.format(np.sum(data)))
 
         return data
 
 
     def get_labels_to_colors(kmeans_model, kmeans_data):
         
-        white_label = np.argmax(np.linalg.norm(kmeans_model.cluster_centers_, axis=1))
+        black_label = np.argmax(np.linalg.norm(kmeans_model.cluster_centers_, axis=1))
         empty_label = kmeans_model.predict(kmeans_data[0:1])[0]
-        black_label = [i for i in range(3) if i not in [white_label, empty_label]][0]
+        white_label = [i for i in range(3) if i not in [black_label, empty_label]][0]
         return {
             white_label: 'white',
             empty_label: 'empty',
