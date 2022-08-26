@@ -1,12 +1,32 @@
 import serial
 import re
 from time import sleep
+from typing import Protocol
 
 # We somehow set up Lim to be on by changing some flags.
 # This gets saved in EEPROM
 
 
-class GCodeBoard:
+class GCodeBoard(Protocol):
+    def move(self, axis, pos):
+        raise NotImplemented
+
+    def move_Y_n_rotation(self, n):
+        raise NotImplemented
+
+
+class SimGCodeBoard(GCodeBoard):
+    def __init__(self, port="/dev/ttyUSB0", baudrate=115200, home=True):
+        pass
+
+    def move(self, axis, pos):
+        pass
+
+    def move_Y_n_rotation(self, n):
+        pass
+
+
+class PiGCodeBoard(GCodeBoard):
     def __init__(self, port="/dev/ttyUSB0", baudrate=115200, home=True):
         # setup that good feed rate
         self.serial = serial.Serial(port, baudrate=baudrate)  # open serial port 115200
@@ -20,7 +40,7 @@ class GCodeBoard:
 
         # Set directions X neg, Y neg
         self.write(f"$3=3")
-        
+
         # Homing cycle enabled
         self.write(f"$22=1")
         # Invert home direction for x, y, and z
@@ -34,8 +54,8 @@ class GCodeBoard:
         self.write(f"$101={200*16}")
 
         # Set max X speed to 4000 mm/min, accel to 200 mm/ss
-        self.write("$110=6000") # 5000 working
-        self.write("$120=1000") # 5000 working
+        self.write("$110=6000")  # 5000 working
+        self.write("$120=1000")  # 5000 working
 
         # Set max Y speed to 8000 mm/min, accel to 2000 mm/ss
         self.write("$111=25")
@@ -96,9 +116,7 @@ class GCodeBoard:
 
     def pos(self):
         status = self.status_string()
-        result = re.search(
-            r"MPos:(?P<X>\d+\.\d+),(?P<Y>\d+\.\d+),(?P<Z>\d+\.\d+)", str(status)
-        )
+        result = re.search(r"MPos:(?P<X>\d+\.\d+),(?P<Y>\d+\.\d+),(?P<Z>\d+\.\d+)", str(status))
         return {k: float(v) for k, v in result.groupdict().items()}
 
     def reset_alarm(self):
@@ -108,20 +126,3 @@ class GCodeBoard:
 
     # def __del__(self):
     #    self.serial.close()
-
-
-# m = GCodeBoard(port="/dev/ttyUSB1")
-
-# time.sleep(0.1)
-# print(m.pos())
-# time.sleep(0.1)
-# #print(m.pos())
-# #print(m.lim())
-# print(m.move("X", 5.0))
-# m.move("X",5)
-# time.sleep(1)
-# print(m.pos())
-
-# #m.home()
-
-

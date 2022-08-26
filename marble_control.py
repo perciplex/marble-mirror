@@ -5,181 +5,93 @@ import serial
 from enum import Enum
 from time import sleep
 import numpy as np
+import os
+import random
+from typing import Protocol
 
-import board
-import RPi.GPIO as GPIO
-from adafruit_motor import stepper
-from adafruit_motorkit import MotorKit
-from adafruit_servokit import ServoKit
-from adafruit_tcs34725 import TCS34725
-from picamera import PiCamera
+if os.getenv("PI") == True:
+    from adafruit_servokit import ServoKit
+    from adafruit_tcs34725 import TCS34725
+    from picamera import PiCamera
 
 
-class Gate:
+class Gate(Protocol):
+    def drop(self, delay=0.2) -> None:
+        raise NotImplemented
+
+
+class SimGate(Gate):
+    def __init__(self, channel=0, open_angle=0, closed_angle=180):
+        pass
+
+    def drop(self, delay=0.2) -> None:
+        pass
+
+
+class PiGate(Gate):
     def __init__(self, channel=0, open_angle=0, closed_angle=180):
         self.servo_kit = ServoKit(channels=16)
         self.servo = self.servo_kit.servo[channel]
         self.open_angle = open_angle
         self.closed_angle = closed_angle
 
-    def open(self):
+    def open(self) -> None:
         logging.debug(f"Openning servo {self.servo}...")
         self.servo.angle = self.open_angle
         logging.debug(f"Openned servo {self.servo}")
 
-    def close(self):
+    def close(self) -> None:
         logging.debug(f"Closing servo {self.servo}...")
         self.servo.angle = self.closed_angle
         logging.debug(f"Closed servo {self.servo}")
 
     def drop(self, delay=0.2):
         """Open the gate, sleep the delay, then close the gate, and sleep the delay.
-        Default is delay=0.4"
+        Default is delay=0.2ms"
         """
         self.open()
         sleep(delay)
         self.close()
-        sleep(0.2)
-
-
-class GCodeMotor:
-    def __init__(self, axis, port="/dev/ttyACM0", baudrate=115200):
-        # setup that good feed rate
-        self.serial = serial.Serial(port, baudrate=baudrate)  # open serial port 115200
-        self.axis = axis
-
-        # Clear the first two erroneous messages
-        status = self.serial.readline()
-        status = self.serial.readline()
-
-        # set steps per rev
-        # 200 steps / rev    8mm / rev 
-        # https://github.com/gnea/grbl/wiki/Grbl-v1.1-Configuration
-        self.serial.write(f"$102={200 / 8}\n".encode())
-        # Homing enable
-        self.serial.write(f"$22=1\n".encode())
-        # homing direction negative
-        self.serial.write(f"$23=7\n".encode())
-
-        # set x y max homing travel distance to 0
-        self.serial.write(f"$130=0\n".encode())
-        self.serial.write(f"$131=0\n".encode())
-        # set z max homing travel distance to 200mm
-        self.serial.write(f"$132=200\n".encode())
-        self.serial.reset_input_buffer()
-
-    def move(self, pos):
-        self.serial.write(f"G0 {self.axis}{pos}\n".encode())
-
-    def home(self):
-        # https://github.com/gnea/grbl/wiki/Set-up-the-Homing-Cycle
-        # Spindle enable is pin 12 which is what grbl is expecting for the Z limit switch
-        self.serial.write(b"$H\n")
-
-    def status_string(self):
-        self.serial.reset_output_buffer()
-        self.serial.reset_input_buffer()
-        self.serial.write(b"?\n")
-        status = self.serial.readline()
-        print(status)
-        return status
-
-    def lim(self):
-        status = self.status_string()
-        result = re.search(r"Lim:(?P<X>\d)(?P<Y>\d)(?P<Z>\d)", str(status))
-        return {k: bool(int(v)) for k, v in result.groupdict().items()}
-
-    def pos(self):
-        status = self.status_string()
-        result = re.search(
-            r"MPos:(?P<X>\d+\.\d+),(?P<Y>\d+\.\d+),(?P<Z>\d+\.\d+)", str(status)
-        )
-        return {k: float(v) for k, v in result.groupdict().items()}
-
-    def __del__(self):
-        self.serial.close()
-
-
-class LimitSwitch:
-    def __init__(self, pin=21):
-        self.pin = pin
-        GPIO.setup(self.pin, GPIO.IN, pull_up_down=GPIO.PUD_DOWN)
-
-    @property
-    def is_pressed(self):
-        return GPIO.input(self.pin)
+        sleep(delay)
 
 
 class BallState(Enum):
     Black = 1
     White = 0
     Empty = -1
-    Unknown = -2
 
 
 BallColor = {BallState.Black: "⚫", BallState.White: "⚪", BallState.Empty: "🈳"}
 
 
-class BallReader:
-    # vocab = [BallState.Empty, BallState.Black, BallState.White]
-    color_str_to_enum = {
-        'empty': BallState.Empty,
-        'black': BallState.Black,
-        'white': BallState.White,
-    }
-    def __init__(self, model_pickle_path="model_brig_weird_instruction.pickle"):
-        self.pixel = TCS34725(board.I2C())
-        self.pixel.integration_time = 2.4
-        self.pixel.gain = 4
+class Camera(Protocol):
+    @property
+    def color(self):
+        raise NotImplemented
 
-        with open(model_pickle_path, "rb") as handle:
-            model_and_vocab = pickle.load(handle)
-        
-        self.model = model_and_vocab['model']
-        self.vocab = model_and_vocab['vocab']
+    @property
+    def color_raw(self):
+        raise NotImplemented
+
+
+class SimCamera(Camera):
+    def __init__(self, model_pickle_path=None):
+        pass
 
     @property
     def color(self):
-        raw = None
-        while raw is None or 0 in raw:
-            raw = self.pixel.color_raw
-        logging.debug(f"Pixel value {raw}")
-        label = self.model.predict([raw])
-        color_str = self.vocab[label[0]]
-        color = self.color_str_to_enum[color_str]
+        color = random.choice(list(BallState))
         logging.info(f"Detected ball color {color} {BallColor[color]}")
         return color
 
 
-class BallReader2:
-    vocab = [BallState.Empty, BallState.Black, BallState.White]
-
-    def __init__(self, model_pickle_path="model_garbus.pickle"):
-        self.pixel = TCS34725(board.I2C())
-        self.pixel.integration_time = 2.4
-        self.pixel.gain = 4
-
-        with open(model_pickle_path, "rb") as handle:
-            self.model = pickle.load(handle)
-
-    @property
-    def color(self):
-        raw = None
-        while raw is None or 0 in raw:
-            logging.debug("raw color value", raw)
-            raw = self.pixel.color_raw
-        logging.debug(f"Pixel value {raw}")
-        label = self.model.predict([raw])
-        return self.vocab[label[0]]
-
-
-
-class Camera:
+class PiCamera(Camera):
     color_str_to_enum = {
-        'empty': BallState.Empty,
-        'black': BallState.Black,
-        'white': BallState.White,
+        "empty": BallState.Empty,
+        "black": BallState.Black,
+        "white": BallState.White,
     }
+
     def __init__(self, model_pickle_path=None):
         self._camera = PiCamera()
         self.model = None
@@ -187,12 +99,12 @@ class Camera:
         if model_pickle_path is not None:
             with open(model_pickle_path, "rb") as handle:
                 model_and_vocab = pickle.load(handle)
-            
-            self.model = model_and_vocab['model']
-            self.vocab = model_and_vocab['vocab']
+
+            self.model = model_and_vocab["model"]
+            self.vocab = model_and_vocab["vocab"]
 
     @property
-    def color(self):
+    def color(self) -> BallState:
         assert self.model is not None
         assert self.vocab is not None
 
@@ -205,7 +117,6 @@ class Camera:
         color = self.color_str_to_enum[color_str]
         logging.info(f"Detected ball color {color} {BallColor[color]}")
         return color
-    
 
     @property
     def color_raw(self):
@@ -213,11 +124,10 @@ class Camera:
         self._camera.framerate = 24
         sleep(0.05)
         output = np.empty((240, 320, 3), dtype=np.uint8)
-        self._camera.capture(output, 'rgb')
+        self._camera.capture(output, "rgb")
         return output.flatten()
-    
 
     def __del__(self):
-        print('Closing camera...')
+        print("Closing camera...")
         self._camera.close()
-        print('Closed')
+        print("Closed")
