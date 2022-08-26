@@ -1,2 +1,26 @@
 [tool.black]
 line-length = 119
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "marble_mirror"
+version = "0.1.0"
+description = "Marble mirror art driver"
+readme = "README.txt"
+requires-python = ">=3.9"
+license = {text = "BSD 3-Clause License"}
+classifiers = [
+    "Programming Language :: Python :: 3",
+]
+dependencies = [
+    "Click>=7.0"
+]
+
+[tool.setuptools.packages]
+find = {} 
+
+[project.scripts]
+mm = "marble_mirror.cli:cli"
