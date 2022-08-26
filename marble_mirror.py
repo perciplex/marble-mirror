@@ -1,3 +1,4 @@
+from code import interact
 import logging
 import numpy as np
 from enum import IntEnum
@@ -143,20 +144,23 @@ class MarbleBoard:
         n_white_balls = sum([b for b in frontier_balls if b == BallState.White.value])
         n_black_balls = sum([b for b in frontier_balls if b == BallState.Black.value])
         
-        ball_most_needed = 'either' if (n_black_balls == n_white_balls) else (BallState.Black.value if n_black_balls < n_white_balls else BallState.White.value)
+        ball_most_needed = ball_color if (n_black_balls == n_white_balls) else (BallState.Black.value if n_black_balls < n_white_balls else BallState.White.value)
 
         # find the columns that have the ball we most want after the bottom one
-        valid_columns_with_needed_ball_next = [col for (col, queue) in enumerate(self._queues_list) if len(queue) >= 2 and queue[-2] == ball_most_needed and queue[-1] == ball_color.value]
+        frontier_improving_cols = []
+        for col in valid_columns:
+            queue = self._queues_list[col]
+            if len(queue) >= 2 and queue[-2] == ball_most_needed:
+                frontier_improving_cols.append(col)
+        
         # if they exist, find the closest one
-        if valid_columns_with_needed_ball_next:
-            target_col = min(valid_columns_with_needed_ball_next, key=lambda col: abs(col-current_col))
-            self._queues_list[target_col].pop()
-            return target_col
+        if frontier_improving_cols:
+            target_col = min(frontier_improving_cols, key=lambda col: abs(col-current_col))
         else:
             target_col = min(valid_columns, key=lambda col: abs(col-current_col))
-            self._queues_list[target_col].pop()
-            return target_col
 
+        self._queues_list[target_col].pop()
+        return target_col
     def done(self) -> bool:
         return all([len(q) == 0 for q in self._queues_list])
 
@@ -170,7 +174,6 @@ class Carriage:
         self._gcode_board = gcode_board
         # self._carriage_motor = GCodeMotor(channel=CARRIAGE_STEPPER_CHANNEL)
         self._cur_column = None
-        self._ball_dropper.drop()
 
     def drop_ball_in_column_and_home(self, target_column: int) -> None:
         """Go to target column, drop the ball, and then return home.
@@ -184,22 +187,28 @@ class Carriage:
         self.go_home()
 
 
-    def drop_ball_in_column(self, target_column: int) -> None:
+    def drop_ball_in_column(self, target_column: int) -> float:
         """Go to target column, drop the ball, and then return home.
 
         Args:
             target_column (int): Target column to drop ball in.
+
+        Returns:
+            int: total steps traveled
         """
         logging.debug(f"Dropping ball in column {target_column}")
         self.go_to_column(target_column)
         self._ball_dropper.drop()
 
 
-    def go_to_column(self, target_column: int) -> None:
+    def go_to_column(self, target_column: int) -> float:
         """Move the carriage to the target column. Calculates the inter-column
         distance, converts to stepper steps, and determines the direction.
 
         If the current column is not known, first go home to calibrate.
+
+        Returns:
+            float: Total steps traveled.
 
         Args:
             target_column (int): The target column to go to.
@@ -213,6 +222,7 @@ class Carriage:
         steps = HOME_TO_FIRST_COLUMN_DISTANCE_MM + target_column * STEPS_PER_COLUMN
         self._gcode_board.move('X', steps)
         self._cur_column = target_column
+        return steps
 
     def go_home(self) -> None:
         """Moves carriage towards home until limit switch pressed.
@@ -248,6 +258,9 @@ class MarbleMirror:
             channel=BOARD_SERVO_CHANNEL,
         )
         # self._ball_reader = BallReader()
+        self.total_balls_recycled = 0
+        self.total_dist_traveled = 0
+
         self._ball_reader = Camera(model_pickle_path=model_pickle_path)
 
     def draw_image(self, image: List[List[int]]) -> None:
@@ -263,7 +276,6 @@ class MarbleMirror:
         # Set the new image that we'll be drawing
         self._board.set_new_board(image)
         self._carriage.go_home()
-        self._carriage._ball_dropper.drop()
         while not self._board.done():
             # Push elevator until we have a ball in the cart
             cur_ball_color = self._ball_reader.color
@@ -290,9 +302,10 @@ class MarbleMirror:
                 )
                 self._carriage.go_home()
                 self._carriage._ball_dropper.drop()
+                self.total_balls_recycled += 1
             else:
                 logging.info(f"Delivering ball to col {valid_column}.")
-                self._carriage.drop_ball_in_column(valid_column)
+                self.total_dist_traveled += self._carriage.drop_ball_in_column(valid_column)
 
             self._board.print_board_queues()
 
@@ -301,9 +314,6 @@ class MarbleMirror:
         self._board_dropper.drop(delay=BOARD_DROP_SLEEP_TIME)
         logging.debug("Image cleared.")
 
-
-class Interface:
-    pass
 
 
 @click.group()
