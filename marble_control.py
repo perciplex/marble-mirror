@@ -32,24 +32,14 @@ class Gate:
         self.servo.angle = self.closed_angle
         logging.debug(f"Closed servo {self.servo}")
 
-    def drop(self, delay=0.4):
-        """Open the gate, sleep the delay, then close the gate, and sleep the delay."
+    def drop(self, delay=0.2):
+        """Open the gate, sleep the delay, then close the gate, and sleep the delay.
+        Default is delay=0.4"
         """
         self.open()
         sleep(delay)
         self.close()
         sleep(0.2)
-
-    def jitter(self, delay=0.2):
-        """Open the gate, sleep the delay, then close the gate, and sleep the delay."
-        """
-
-        for i in range(30):
-            self.servo.angle = self.closed_angle + 6 * (-1) ** i
-            sleep(0.03)
-        
-        self.close()
-        sleep(2)
 
 
 class GCodeMotor:
@@ -108,46 +98,6 @@ class GCodeMotor:
 
     def __del__(self):
         self.serial.close()
-
-
-class StepperMotor:
-    def __init__(self, channel: int, step_sleep: int = 0) -> None:
-        self.kit = MotorKit()
-        self.stepper = getattr(self.kit, f"stepper{channel}")
-        self.step_sleep = step_sleep
-
-    def can_step(self, direction):
-        """Returns if the motor can step.
-
-        Returns:
-            Bool: Bool if the motor is allowed to step.
-        """
-        return True
-
-    def move(self, steps: int, direction: int) -> None:
-        """Take N steps in a specific direction while the stepper.can_step().
-        Releases the motor after the move is completed.
-
-        Args:
-            steps (int): Number of steps to take. Must be positive int.
-            direction (int): Must be either 1 (forward) or 2 (backwards)
-        """
-        assert steps >= 0, "Do not pass negative steps"
-        assert direction in [stepper.FORWARD, stepper.BACKWARD]
-
-        for _ in range(steps):
-            if not self.can_step(direction):
-                break
-            else:
-                self.stepper.onestep(direction=direction, style=stepper.DOUBLE)
-                sleep(self.step_sleep)
-        self.release()
-
-    def release(self):
-        self.stepper.release()
-
-    def __del__(self):
-        self.release()
 
 
 class LimitSwitch:
@@ -261,7 +211,7 @@ class Camera:
     def color_raw(self):
         self._camera.resolution = (320, 240)
         self._camera.framerate = 24
-        sleep(0.2)
+        sleep(0.05)
         output = np.empty((240, 320, 3), dtype=np.uint8)
         self._camera.capture(output, 'rgb')
         return output.flatten()

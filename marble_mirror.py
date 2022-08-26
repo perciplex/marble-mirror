@@ -4,7 +4,7 @@ from enum import IntEnum
 from time import sleep
 from typing import List, Optional
 import numpy as np
-
+from PIL import Image
 import click
 from adafruit_motor import stepper
 
@@ -13,10 +13,10 @@ from marble_control import (
     BallState,
     Gate,
     LimitSwitch,
-    StepperMotor,
     GCodeMotor,
     Camera,
 )
+from adafruit_servokit import ServoKit
 from gcode import GCodeBoard
 import pickle
 from sklearn.cluster import KMeans
@@ -25,7 +25,7 @@ STEPS_PER_REV = 200.0
 MM_PER_REV = 8.0
 INTER_COLUMN_DISTANCE = 11.613  # (mm). Original (non rails) was 13.7
 # STEPS_PER_COLUMN = int(INTER_COLUMN_DISTANCE * STEPS_PER_REV / MM_PER_REV)
-STEPS_PER_COLUMN = 7.874
+STEPS_PER_COLUMN = 7.044
 APPRECIATE_IMAGE_TIME = 5.0
 BOARD_DROP_SLEEP_TIME = 1.0
 # The wire with a ziptie on it is for the elevator stepper.
@@ -39,13 +39,14 @@ BOARD_SERVO_OPEN_ANGLE = 110
 BOARD_SERVO_CLOSE_ANGLE = 145
 LIMIT_SWITCH_GPIO_PIN = 1
 HOME_COLUMN_VALUE = 0.  # This needs to get calibrated to home offset from column 0
-ELEVATOR_BALL_PUSH_STEPS = 202  # Set intentionally
+ELEVATOR_BALL_PUSH_STEPS = 67  # Set intentionally
 ELEVATOR_PUSH_WAIT_TIME_S = 0.5  # Wait after pushing a ball before reading
-HOME_TO_FIRST_COLUMN_DISTANCE_MM = 8.5
-CARRIAGE_CAPACITY = 4
+HOME_TO_FIRST_COLUMN_DISTANCE_MM = 33
+CARRIAGE_CAPACITY = 5
+BALLS_PER_PACMAN_ROTATION = 3
 
-N_COLS = 15
-N_ROWS = 8
+N_COLS = 30
+N_ROWS = 32
 
 
 class ElevatorMoveDirection(IntEnum):
@@ -227,10 +228,10 @@ class Elevator:
         self._gcode_board = gcode_board
 
     def push_one_ball(self):
-        self._gcode_board.move_Y_n_rotation(1)
+        self._gcode_board.move_Y_n_rotation(1. / BALLS_PER_PACMAN_ROTATION)
 
     def fill_carriage(self):
-        self._gcode_board.move_Y_n_rotation(CARRIAGE_CAPACITY)
+        self._gcode_board.move_Y_n_rotation(CARRIAGE_CAPACITY / BALLS_PER_PACMAN_ROTATION)
 
 class MarbleMirror:
     def __init__(self, n_cols: int, n_rows: int, model_pickle_path="model_brig_weird_instruction.pickle") -> None:
@@ -322,11 +323,24 @@ def goto(column):
     mm._carriage.go_to_column(int(column))
     logging.info(f"Arrived at column {column}")
 
+'''
+@cli.command()
+def max():
+    gcode_board = GCodeBoard(port="/dev/ttyUSB0", home=True)
+    carriage = Carriage(gcode_board)
+    for i in range(25):
+        print('iteration', i)
+        carriage.go_to_column(int(20))
+        carriage.go_to_column(int(1))
+    logging.info(f"Arrived at column max")
+'''
+
 @cli.command()
 def lift():
-    mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
+    gcode_board = GCodeBoard(port="/dev/ttyUSB0", home=True)
+    elevator = Elevator(gcode_board)
     logging.info(f"Driving elevator one full rotation...")
-    mm._elevator.move(ELEVATOR_BALL_PUSH_STEPS, ElevatorMoveDirection.BALL_UP)
+    elevator.push_one_ball()
     logging.info(f"Done driving elevator.")
 
 @cli.command()
@@ -355,6 +369,21 @@ def jitter():
 
 
 @cli.command()
+@click.argument("angle")
+def set_angle(angle):
+    servo_kit = ServoKit(channels=16)
+    servo = servo_kit.servo[CARRIAGE_SERVO_CHANNEL]
+    # for reference
+    test_angle = 90
+    open_angle = 40
+    closed_angle = 130
+    
+    logging.info(f"Setting servo angle to {angle}...")
+    servo.angle = float(angle)
+    logging.info(f"Set.")
+
+
+@cli.command()
 def read():
     _ball_reader = BallReader()
     logging.info(f"Reading from sensor...")
@@ -375,7 +404,60 @@ def clear(open_angle, close_angle):
 @cli.command()
 def draw():
     mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS)
+    
+    img = [
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1],
+[0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 1],
+[0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+[0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+[0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+[0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+[0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
+[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1],
+[0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1],
+[0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+[1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1],
+    ]
 
+    img = np.array(img)
+    img = 1 - img
+    img = img.astype(int).tolist()
+
+    '''
+    img = [
+        
+        [0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 0, 0],
+        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0],
+        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        [1, 0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0],
+        [1, 1, 1, 0, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+    ]
+    '''
+    '''
     img = [
         [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
@@ -386,6 +468,8 @@ def draw():
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
     ]
+    '''
+
     '''
     img = [
         [1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0],

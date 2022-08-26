@@ -18,8 +18,8 @@ class GCodeBoard:
         status = self.serial.readline()
         print(status)
 
-        # Set directions X pos, Y neg
-        self.write(f"$3=2")
+        # Set directions X neg, Y neg
+        self.write(f"$3=3")
         
         # Homing cycle enabled
         self.write(f"$22=1")
@@ -33,12 +33,12 @@ class GCodeBoard:
         # Set Y step/mm to (200 steps / rev) * (16 microsteps / ste) = 3200 microsteps/rev
         self.write(f"$101={200*16}")
 
-        # Set max X speed to 8000 mm/min, accel to 2000 mm/ss
-        self.write("$110=6000")
-        self.write("$120=300")
+        # Set max X speed to 4000 mm/min, accel to 200 mm/ss
+        self.write("$110=6000") # 5000 working
+        self.write("$120=1000") # 5000 working
 
         # Set max Y speed to 8000 mm/min, accel to 2000 mm/ss
-        self.write("$111=100")
+        self.write("$111=25")
         if home:
             self.home()
 
@@ -64,6 +64,7 @@ class GCodeBoard:
     def block_until_move(self):
         while "Idle" not in str(self.status_string()):
             sleep(0.01)
+            # print('waiting for idle...')
 
     def home(self):
         # Only home the X
