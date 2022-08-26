@@ -1,5 +1,4 @@
 import logging
-from time import sleep
 import numpy as np
 import click
 
@@ -7,8 +6,6 @@ from marble_mirror.hardware.gate import PiGate
 from marble_mirror.hardware.camera import PiCamera
 from marble_mirror.hardware.gcode import PiGCodeBoard
 from marble_mirror.marble_mirror import MarbleMirror, Elevator
-import pickle
-from sklearn.cluster import KMeans
 
 APPRECIATE_IMAGE_TIME = 5.0
 CARRIAGE_SERVO_CHANNEL = 0

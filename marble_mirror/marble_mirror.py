@@ -328,7 +328,7 @@ class MarbleMirror:
         self._board_dropper.drop(delay=BOARD_DROP_SLEEP_TIME)
         logging.debug("Image cleared.")
 
-    def auto_calibrate(self, model_name:str):
+    def auto_calibrate(self, model_name: str):
         # pass None as the path, so the Camera obj won't try to load it.
         # mm = MarbleMirror(1, 1, model_pickle_path=None)
         car = self._carriage
