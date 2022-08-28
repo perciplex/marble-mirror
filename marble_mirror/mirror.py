@@ -1,16 +1,17 @@
 import logging
 import numpy as np
-from enum import IntEnum
-from time import sleep
-from typing import List, Optional, Type
-from adafruit_motor import stepper
-from dataclasses import dataclass
-
-from marble_mirror.hardware.gate import Gate, SimGate, PiGate
-from marble_mirror.hardware.camera import BallState, Camera, SimCamera, PiCamera
-from marble_mirror.hardware.gcode import GCodeBoard, SimGCodeBoard, PiGCodeBoard
 import pickle
+import random
+from dataclasses import dataclass
 from sklearn.cluster import KMeans
+from time import sleep
+from typing import List, Type
+
+from marble_mirror.hardware.camera import BallState, Camera, SimCamera, PiCamera
+from marble_mirror.components import Elevator, Carriage, MarbleBoard
+from marble_mirror.hardware.gcode import GCodeBoard, SimGCodeBoard, PiGCodeBoard
+from marble_mirror.hardware.gate import Gate, SimGate, PiGate
+from marble_mirror.planners import ClosestValidColumn
 
 
 STEPS_PER_COLUMN = 7.044
@@ -26,205 +27,6 @@ HOME_COLUMN_VALUE = 0.0  # This needs to get calibrated to home offset from colu
 HOME_TO_FIRST_COLUMN_DISTANCE_MM = 33
 CARRIAGE_CAPACITY = 5
 BALLS_PER_PACMAN_ROTATION = 3
-
-
-class ElevatorMoveDirection(IntEnum):
-    BALL_UP = stepper.BACKWARD
-    BALL_DOWN = stepper.FORWARD
-
-
-class CarriageMoveDirection(IntEnum):
-    AWAY = stepper.BACKWARD
-    HOME = stepper.FORWARD
-
-
-def column_valid_for_color(col: List[int], ball_color: int):
-    return len(col) and col[-1] == ball_color.value
-
-
-class MarbleBoard:
-    def __init__(self, n_cols: int, n_rows: int):
-        self._n_cols = n_cols
-        self._n_rows = n_rows
-        self._board_state = [[] for i in range(n_cols)]
-        self._queues_list = None
-        self.image = None
-
-    def set_new_board(self, image: List[List[int]]) -> None:
-        """
-        Transforms the image from a list of rows into a list of columns
-        which are used as queues for which column needs what color ball.
-        eg, input of
-        [
-            [0, 1, 2],
-            [a, b, c],
-            [i, j, k],
-            ...
-        ]
-
-        yields:
-        [
-            [0, a, i],
-            [1, b, j],
-            [2, c, k],
-            ...
-        ]
-        """
-        self._queues_list = []
-        self.image = image
-
-        image_rows = len(image)
-        image_cols = len(max(image, key=len))
-        assert image_cols <= self._n_cols, f"Can only have up to {self._n_cols} columns"
-        assert image_rows <= self._n_rows, f"Can only have up to {self._n_cols} columns"
-
-        self._queues_list = np.transpose(np.array(image)).tolist()
-        self.print_board_queues()
-
-    def print_board_queues(self):
-        logging.debug(f"Current state of internal queues: {[_ for _ in self._queues_list]}")
-        for row in self._board_state:
-            logging.debug(row)
-
-    def get_next_valid_column_for_color(self, ball_color: int) -> Optional[int]:
-        logging.debug(f"Looking for valid column for ball color: = {ball_color}")
-        # Go through each queue (column), see if the bottom matches ball_color.
-        # If true, pop from that queue and return the column.
-        for col, queue in enumerate(self._queues_list):
-            if len(queue) > 0 and queue[-1] == ball_color.value:
-                queue.pop()
-                self._board_state[col].append(ball_color.value)
-                return col
-
-        # If we didn't find any, return None
-        return None
-
-    def get_closest_valid_column_for_color(self, ball_color: int, current_col: int) -> Optional[int]:
-        logging.debug(f"Looking for closest valid column for ball color: = {ball_color}")
-        valid_columns = [
-            col for (col, queue) in enumerate(self._queues_list) if column_valid_for_color(queue, ball_color)
-        ]
-        if valid_columns:
-            target_col = min(valid_columns, key=lambda col: abs(col - current_col))
-            self._queues_list[target_col].pop()
-            return target_col
-        # If we didn't find any, return None
-        return None
-
-    def get_valid_column_for_color_and_minimize_diff(self, ball_color: int, current_col: int) -> Optional[int]:
-        logging.debug(f"Looking for column for ball color: = {ball_color}")
-        valid_columns = [
-            col for (col, queue) in enumerate(self._queues_list) if column_valid_for_color(queue, ball_color)
-        ]
-
-        # If we didn't find any, return None
-        if len(valid_columns) == 0:
-            return None
-
-        frontier_balls = [queue[-1] for queue in self._queues_list if len(queue)]
-        n_white_balls = sum([b for b in frontier_balls if b == BallState.White.value])
-        n_black_balls = sum([b for b in frontier_balls if b == BallState.Black.value])
-
-        ball_most_needed = (
-            ball_color
-            if (n_black_balls == n_white_balls)
-            else (BallState.Black.value if n_black_balls < n_white_balls else BallState.White.value)
-        )
-
-        # find the columns that have the ball we most want after the bottom one
-        frontier_improving_cols = []
-        for col in valid_columns:
-            queue = self._queues_list[col]
-            if len(queue) >= 2 and queue[-2] == ball_most_needed:
-                frontier_improving_cols.append(col)
-
-        # if they exist, find the closest one
-        if frontier_improving_cols:
-            target_col = min(frontier_improving_cols, key=lambda col: abs(col - current_col))
-        else:
-            target_col = min(valid_columns, key=lambda col: abs(col - current_col))
-
-        self._queues_list[target_col].pop()
-        return target_col
-
-    def done(self) -> bool:
-        return all([len(q) == 0 for q in self._queues_list])
-
-
-class Carriage:
-    def __init__(self, gcode_board: GCodeBoard) -> None:
-        self._ball_dropper = SimGate(
-            open_angle=CARRIAGE_SERVO_OPEN_ANGLE,
-            closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE,
-            channel=CARRIAGE_SERVO_CHANNEL,
-        )
-        self._gcode_board = gcode_board
-        self._cur_column = None
-
-    def drop_ball_in_column_and_home(self, target_column: int) -> None:
-        """Go to target column, drop the ball, and then return home.
-
-        Args:
-            target_column (int): Target column to drop ball in.
-        """
-        logging.debug(f"Dropping ball in column {target_column}")
-        self.go_to_column(target_column)
-        self._ball_dropper.drop()
-        self.go_home()
-
-    def drop_ball_in_column(self, target_column: int) -> float:
-        """Go to target column, drop the ball, and then return home.
-
-        Args:
-            target_column (int): Target column to drop ball in.
-
-        Returns:
-            int: total steps traveled
-        """
-        logging.debug(f"Dropping ball in column {target_column}")
-        steps = self.go_to_column(target_column)
-        self._ball_dropper.drop()
-        return steps
-
-    def go_to_column(self, target_column: int) -> float:
-        """Move the carriage to the target column. Calculates the inter-column
-        distance, converts to stepper steps, and determines the direction.
-
-        If the current column is not known, first go home to calibrate.
-
-        Returns:
-            float: Total steps traveled.
-
-        Args:
-            target_column (int): The target column to go to.
-        """
-
-        logging.debug(f"Carriage going from {self._cur_column} to column {target_column}")
-
-        # Calculate the number of steps to take based on current position
-        steps = HOME_TO_FIRST_COLUMN_DISTANCE_MM + target_column * STEPS_PER_COLUMN
-        self._gcode_board.move("X", steps)
-        self._cur_column = target_column
-        return steps
-
-    def go_home(self) -> None:
-        """Moves carriage towards home until limit switch pressed.
-        Then sets current column to the HOME_COLUMN_VALUE
-        """
-        logging.info("Carriage going home.")
-        self._gcode_board.move("X", 0)
-        self._cur_column = HOME_COLUMN_VALUE
-
-
-class Elevator:
-    def __init__(self, gcode_board: GCodeBoard) -> None:
-        self._gcode_board = gcode_board
-
-    def push_one_ball(self):
-        self._gcode_board.move_Y_n_rotation(1.0 / BALLS_PER_PACMAN_ROTATION)
-
-    def fill_carriage(self):
-        self._gcode_board.move_Y_n_rotation(CARRIAGE_CAPACITY / BALLS_PER_PACMAN_ROTATION)
 
 
 @dataclass
@@ -273,12 +75,19 @@ class MarbleMirror:
             closed_angle=BOARD_SERVO_CLOSE_ANGLE,
             channel=BOARD_SERVO_CHANNEL,
         )
+        self._carriage_dropper = factory.gate_class(
+            open_angle=CARRIAGE_SERVO_OPEN_ANGLE,
+            closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE,
+            channel=CARRIAGE_SERVO_CHANNEL,
+        )
 
         self._board = MarbleBoard(n_cols=n_cols, n_rows=n_rows)
         self._elevator = Elevator(self._gcode_board)
-        self._carriage = Carriage(self._gcode_board)
+        self._carriage = Carriage(self._gcode_board, self._carriage_dropper)
+        self._planneer = ClosestValidColumn(self._board)
         self.total_balls_recycled = 0
         self.total_dist_traveled = 0
+        random.seed(1)
 
     def draw_image(self, image: List[List[int]]) -> None:
 
@@ -304,22 +113,21 @@ class MarbleMirror:
                 self._elevator.fill_carriage()
                 cur_ball_color = self._ball_reader.color
 
-            # TODO: Add a class here that will determine which col to drop in so we can
-            # experiment with different heuristics later on.
-            # Get next column that we can drop this ball in
-            valid_column = self._board.get_valid_column_for_color_and_minimize_diff(
-                cur_ball_color, self._carriage._cur_column
+            target_col = self._planneer.select_drop_column(
+                cur_ball_color=cur_ball_color, cur_cart_column=self._carriage._cur_column
             )
 
             # None corresponds to no columns need this color
-            if valid_column is None:
+            if target_col is None:
                 logging.info(f"No column needs current ball ({cur_ball_color}); recycling")
                 self._carriage.go_home()
                 self._carriage._ball_dropper.drop()
                 self.total_balls_recycled += 1
             else:
-                logging.info(f"Delivering ball to col {valid_column}.")
-                self.total_dist_traveled += self._carriage.drop_ball_in_column(valid_column)
+                logging.info(f"Delivering ball to col {target_col}.")
+                assert self._board._queues_list[target_col][-1] == cur_ball_color.value
+                self._board._queues_list[target_col].pop()
+                self.total_dist_traveled += self._carriage.drop_ball_in_column(target_col)
 
             self._board.print_board_queues()
 
