@@ -10,16 +10,8 @@ from marble_mirror.hardware.gcode import GCodeBoard
 
 
 STEPS_PER_COLUMN = 7.044
-BOARD_DROP_SLEEP_TIME = 1.0
-CARRIAGE_SERVO_CHANNEL = 0
-BOARD_SERVO_CHANNEL = 12
-CARRIAGE_SERVO_OPEN_ANGLE = 40
-CARRIAGE_SERVO_CLOSE_ANGLE = 150
-BOARD_SERVO_OPEN_ANGLE = 110
-BOARD_SERVO_CLOSE_ANGLE = 145
-HOME_COLUMN_VALUE = 0.0  # This needs to get calibrated to home offset from column 0
-
-HOME_TO_FIRST_COLUMN_DISTANCE_MM = 33
+HOME_COLUMN_VALUE = 0.0
+HOME_TO_FIRST_COLUMN_DISTANCE_MM = 33  # This needs to get calibrated to home offset from column 0
 CARRIAGE_CAPACITY = 5
 BALLS_PER_PACMAN_ROTATION = 3
 
@@ -32,10 +24,6 @@ class ElevatorMoveDirection(IntEnum):
 class CarriageMoveDirection(IntEnum):
     AWAY = stepper.BACKWARD
     HOME = stepper.FORWARD
-
-
-def column_valid_for_color(col: List[int], ball_color: int):
-    return len(col) and col[-1] == ball_color.value
 
 
 class MarbleBoard:
@@ -82,7 +70,7 @@ class MarbleBoard:
         for row in self._board_state:
             logging.debug(row)
 
-    def get_frontier_at_depth(self, depth: int = 0) -> List[List]:
+    def get_frontier_at_depth(self, depth: int = 0) -> List[BallState]:
         """
         Return a frontier of the queues at a fixed depth. Depth 0 is the current frontier.
 
@@ -90,16 +78,16 @@ class MarbleBoard:
             depth (int, optional): Frontier depth. Defaults to 0.
 
         Returns:
-            List[List]: Frontier at depth.
+            List[BallState]: Frontier at requested depth.
         """
         adj_depth = -1 - depth
         frontier = []
 
         for queue in self._queues_list:
             if len(queue) >= abs(adj_depth):
-                frontier.append(queue[adj_depth])
+                frontier.append(BallState(queue[adj_depth]))
             else:
-                frontier.append(BallState.Empty.value)
+                frontier.append(BallState.Empty)
 
         logging.debug(f"Frontier at depth {depth}: {frontier}")
         return frontier
@@ -109,21 +97,24 @@ class MarbleBoard:
 
 
 class Carriage:
+    """
+    Carriage class which is repsonsible for reading bals and dropping them
+    in the target columns. Has a GCodeBoard for driving and a Gate for droping.
+    """
+
     def __init__(self, gcode_board: GCodeBoard, gate: Gate) -> None:
         self._ball_dropper = gate
         self._gcode_board = gcode_board
-        self._cur_column = None
+        self._cur_column = 0
 
-    def drop_ball_in_column_and_home(self, target_column: int) -> None:
-        """Go to target column, drop the ball, and then return home.
-
-        Args:
-            target_column (int): Target column to drop ball in.
+    def calc_position(self, column) -> float:
         """
-        logging.debug(f"Dropping ball in column {target_column}")
-        self.go_to_column(target_column)
-        self._ball_dropper.drop()
-        self.go_home()
+        Calculate the GRBL position based on given column.
+
+        Returns:
+            float: Position in steps of provided column.
+        """
+        return HOME_TO_FIRST_COLUMN_DISTANCE_MM + column * STEPS_PER_COLUMN
 
     def drop_ball_in_column(self, target_column: int) -> float:
         """Go to target column, drop the ball, and then return home.
@@ -154,22 +145,41 @@ class Carriage:
 
         logging.debug(f"Carriage going from {self._cur_column} to column {target_column}")
 
-        # Calculate the number of steps to take based on current position
-        steps = HOME_TO_FIRST_COLUMN_DISTANCE_MM + target_column * STEPS_PER_COLUMN
-        self._gcode_board.move("X", steps)
-        self._cur_column = target_column
-        return steps
+        # Calculate the absolute positions of current and target columns
+        current_pos = self.calc_position(self._cur_column)
+        target_pos = self.calc_position(target_column)
 
-    def go_home(self) -> None:
-        """Moves carriage towards home until limit switch pressed.
-        Then sets current column to the HOME_COLUMN_VALUE
+        # Move and set new column.
+        self._gcode_board.move("X", target_pos)
+        self._cur_column = target_column
+
+        return abs(target_pos-current_pos)
+
+    def go_home(self) -> float:
+        """Moves carriage towards home until limit switch pressed, then sets current
+        column to the HOME_COLUMN_VALUE. Returns the estimated distance traveleled.
+
+        Returns:
+            float: Total steps traveled.
         """
         logging.info("Carriage going home.")
+
+        # Calculate the absolute positions of current and target columns
+        current_pos = self.calc_position(self._cur_column)
+        target_pos = self.calc_position(HOME_COLUMN_VALUE)
+
         self._gcode_board.move("X", 0)
         self._cur_column = HOME_COLUMN_VALUE
 
+        return abs(target_pos-current_pos)
+
 
 class Elevator:
+    """
+    Elevator class responsible for driving balls up to carriage.
+    Has a GCodeBoard for driving the stepper.
+    """
+
     def __init__(self, gcode_board: GCodeBoard) -> None:
         self._gcode_board = gcode_board
 

@@ -33,11 +33,11 @@ class Camera(Protocol):
 
 class SimCamera(Camera):
     def __init__(self, model_pickle_path=None):
-        pass
+        self.rng = random.Random(1337)
 
     @property
     def color(self) -> BallState:
-        color = random.choice(list(BallState))
+        color = self.rng.choice(list(BallState))
         logging.info(f"Detected ball color {color} {BallColor[color]}")
         return color
 

@@ -1,7 +1,6 @@
 import logging
 import numpy as np
 import pickle
-import random
 from dataclasses import dataclass
 from sklearn.cluster import KMeans
 from time import sleep
@@ -11,10 +10,8 @@ from marble_mirror.hardware.camera import BallState, Camera, SimCamera, PiCamera
 from marble_mirror.components import Elevator, Carriage, MarbleBoard
 from marble_mirror.hardware.gcode import GCodeBoard, SimGCodeBoard, PiGCodeBoard
 from marble_mirror.hardware.gate import Gate, SimGate, PiGate
-from marble_mirror.planners import ClosestValidColumn
+from marble_mirror.planners import ClosestValidColumn, BalanceFrontier
 
-
-STEPS_PER_COLUMN = 7.044
 BOARD_DROP_SLEEP_TIME = 1.0
 CARRIAGE_SERVO_CHANNEL = 0
 BOARD_SERVO_CHANNEL = 12
@@ -22,27 +19,22 @@ CARRIAGE_SERVO_OPEN_ANGLE = 40
 CARRIAGE_SERVO_CLOSE_ANGLE = 150
 BOARD_SERVO_OPEN_ANGLE = 110
 BOARD_SERVO_CLOSE_ANGLE = 145
-HOME_COLUMN_VALUE = 0.0  # This needs to get calibrated to home offset from column 0
-
-HOME_TO_FIRST_COLUMN_DISTANCE_MM = 33
-CARRIAGE_CAPACITY = 5
-BALLS_PER_PACMAN_ROTATION = 3
 
 
 @dataclass
-class MarbleMirrorFactory:
+class MarbleMirrorHardwareFactory:
     camera_class: Type[Camera]
     gate_class: Type[Gate]
     gcode_class: Type[GCodeBoard]
 
 
-FACTORY_CONFIGS = {
-    "sim": MarbleMirrorFactory(SimCamera, SimGate, SimGCodeBoard),
-    "pi": MarbleMirrorFactory(PiCamera, PiGate, PiGCodeBoard),
+HARDWARE_FACTORY_CONFIGS = {
+    "sim": MarbleMirrorHardwareFactory(SimCamera, SimGate, SimGCodeBoard),
+    "pi": MarbleMirrorHardwareFactory(PiCamera, PiGate, PiGCodeBoard),
 }
 
 
-def build_marble_mirror_factory(config: str) -> MarbleMirrorFactory:
+def build_mm_hardware_factory(config: str) -> MarbleMirrorHardwareFactory:
     """
     Build the factory for the MarbleMirror hardward components.
 
@@ -53,10 +45,10 @@ def build_marble_mirror_factory(config: str) -> MarbleMirrorFactory:
         MarbleMirrorFactory: Factory of MarbleMirror hardware components.
     """
     try:
-        return FACTORY_CONFIGS[config]
+        return HARDWARE_FACTORY_CONFIGS[config]
     except KeyError:
         logging.error(
-            f"Unknown config provided. Only avail options are {FACTORY_CONFIGS.keys()} and you provided {config}"
+            f"Unknown config provided. Only avail options are {HARDWARE_FACTORY_CONFIGS.keys()} and you provided {config}"
         )
         exit(1)
 
@@ -67,7 +59,7 @@ class MarbleMirror:
     ) -> None:
 
         # Load in factory objects for the cgodeboard, camera, and servo gate. Then init them.
-        factory = build_marble_mirror_factory(config)
+        factory = build_mm_hardware_factory(config)
         self._gcode_board = factory.gcode_class(port="/dev/ttyUSB0")
         self._ball_reader = factory.camera_class(model_pickle_path=model_pickle_path)
         self._board_dropper = factory.gate_class(
@@ -87,25 +79,30 @@ class MarbleMirror:
         self._planneer = ClosestValidColumn(self._board)
         self.total_balls_recycled = 0
         self.total_dist_traveled = 0
-        random.seed(1)
+
 
     def draw_image(self, image: List[List[int]]) -> None:
-
         """
-        :param image: a list of lists of ints representing the image we want to draw. Each sublist is a column.
+        Draw the image provided on the MarbleMirror. Clear the old image,
+        send the carriage home, load the new image into the board, drive the
+        system until the image is completed.
+
+        Args:
+            image (List[List[int]]): A list of lists of ints representing the image we want to draw. Each sublist is a column.
                         see MarbleBoard.set_new_board() for how they're organized.
         """
-
         # Get rid of any old image
         self.clear_image()
 
         # Set the new image that we'll be drawing
         self._board.set_new_board(image)
         self._carriage.go_home()
+
         while not self._board.done():
-            # Push elevator until we have a ball in the cart
+            # Read in the current ball in carriage.
             cur_ball_color = self._ball_reader.color
 
+            # While carriage is empty, go home and refill.
             while cur_ball_color is BallState.Empty:
                 logging.info("No current ball; homing and refilling")
                 # There is no current ball, go home and fill carriage.
@@ -113,19 +110,19 @@ class MarbleMirror:
                 self._elevator.fill_carriage()
                 cur_ball_color = self._ball_reader.color
 
-            target_col = self._planneer.select_drop_column(
+            target_col = self._planneer.get_drop_column(
                 cur_ball_color=cur_ball_color, cur_cart_column=self._carriage._cur_column
             )
 
             # None corresponds to no columns need this color
             if target_col is None:
                 logging.info(f"No column needs current ball ({cur_ball_color}); recycling")
-                self._carriage.go_home()
+                self.total_dist_traveled += self._carriage.go_home()
                 self._carriage._ball_dropper.drop()
                 self.total_balls_recycled += 1
             else:
                 logging.info(f"Delivering ball to col {target_col}.")
-                assert self._board._queues_list[target_col][-1] == cur_ball_color.value
+                assert BallState(self._board._queues_list[target_col][-1]) == cur_ball_color
                 self._board._queues_list[target_col].pop()
                 self.total_dist_traveled += self._carriage.drop_ball_in_column(target_col)
 
@@ -136,6 +133,7 @@ class MarbleMirror:
         self._board_dropper.drop(delay=BOARD_DROP_SLEEP_TIME)
         logging.debug("Image cleared.")
 
+    # TODO: Format this better
     def auto_calibrate(self, model_name: str):
         # pass None as the path, so the Camera obj won't try to load it.
         # mm = MarbleMirror(1, 1, model_pickle_path=None)
