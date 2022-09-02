@@ -1,7 +1,7 @@
 import logging
-from typing import Protocol
 
 from marble_mirror.components import MarbleBoard, BallState
+from typing import Protocol
 
 
 class DropPlanner(Protocol):
@@ -15,6 +15,7 @@ class ClosestValidColumn(DropPlanner):
     """
     Planner which chooses the closest valid column from the cart position.
     """
+
     def __init__(self, board: MarbleBoard) -> None:
         self.board = board
 
@@ -39,6 +40,7 @@ class BalanceFrontier(DropPlanner):
 
     Chooses the closet candidate column to the current cart position.
     """
+
     def __init__(self, board: MarbleBoard) -> None:
         self.board = board
 

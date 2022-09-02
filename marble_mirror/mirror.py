@@ -8,8 +8,8 @@ from typing import List, Type
 
 from marble_mirror.hardware.camera import BallState, Camera, SimCamera, PiCamera
 from marble_mirror.components import Elevator, Carriage, MarbleBoard
-from marble_mirror.hardware.gcode import GCodeBoard, SimGCodeBoard, PiGCodeBoard
 from marble_mirror.hardware.gate import Gate, SimGate, PiGate
+from marble_mirror.hardware.gcode import GCodeBoard, SimGCodeBoard, PiGCodeBoard
 from marble_mirror.planners import ClosestValidColumn, BalanceFrontier
 
 BOARD_DROP_SLEEP_TIME = 1.0

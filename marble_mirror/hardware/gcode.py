@@ -1,5 +1,6 @@
-import serial
 import re
+import serial
+
 from time import sleep
 from typing import Protocol
 

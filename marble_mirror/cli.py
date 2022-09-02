@@ -1,6 +1,6 @@
+import click
 import logging
 import numpy as np
-import click
 
 from marble_mirror.hardware.gate import PiGate
 from marble_mirror.hardware.camera import PiCamera

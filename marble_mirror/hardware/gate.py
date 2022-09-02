@@ -1,6 +1,7 @@
 import logging
-from time import sleep
 import os
+
+from time import sleep
 from typing import Protocol
 
 # TODO: Find an appropriate env to know if we are on the PI.

@@ -1,10 +1,11 @@
 import logging
-import pickle
-from enum import Enum
-from time import sleep
 import numpy as np
 import os
+import pickle
 import random
+
+from enum import Enum
+from time import sleep
 from typing import Protocol
 
 # TODO: Find an appropriate env to know if we are on the PI.

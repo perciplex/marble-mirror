@@ -4,8 +4,8 @@ from enum import IntEnum
 from typing import List
 from adafruit_motor import stepper
 
-from marble_mirror.hardware.gate import Gate
 from marble_mirror.hardware.camera import BallState
+from marble_mirror.hardware.gate import Gate
 from marble_mirror.hardware.gcode import GCodeBoard
 
 
