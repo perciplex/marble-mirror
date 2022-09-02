@@ -95,9 +95,6 @@ def set_angle(angle):
     Args:
         angle (float): Angle to set the open position.
     """
-    # for reference
-    # test_angle = 90
-    # open_angle = 40
     closed_angle = 130
 
     gate = PiGate(
@@ -141,7 +138,6 @@ def draw(sim: bool):
     print(config)
     mm = MarbleMirror(n_cols=N_COLS, n_rows=N_ROWS, config=config)
 
-    img = [[0, 1, 0, 1, 0, 1]]
     img = [
         [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
         [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],

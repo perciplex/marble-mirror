@@ -80,7 +80,6 @@ class MarbleMirror:
         self.total_balls_recycled = 0
         self.total_dist_traveled = 0
 
-
     def draw_image(self, image: List[List[int]]) -> None:
         """
         Draw the image provided on the MarbleMirror. Clear the old image,

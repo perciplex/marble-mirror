@@ -153,7 +153,7 @@ class Carriage:
         self._gcode_board.move("X", target_pos)
         self._cur_column = target_column
 
-        return abs(target_pos-current_pos)
+        return abs(target_pos - current_pos)
 
     def go_home(self) -> float:
         """Moves carriage towards home until limit switch pressed, then sets current
@@ -171,7 +171,7 @@ class Carriage:
         self._gcode_board.move("X", 0)
         self._cur_column = HOME_COLUMN_VALUE
 
-        return abs(target_pos-current_pos)
+        return abs(target_pos - current_pos)
 
 
 class Elevator:
