@@ -12,6 +12,9 @@ class DropPlanner(Protocol):
 
 
 class ClosestValidColumn(DropPlanner):
+    """
+    Planner which chooses the closest valid column from the cart position.
+    """
     def __init__(self, board: MarbleBoard) -> None:
         self.board = board
 
@@ -29,6 +32,13 @@ class ClosestValidColumn(DropPlanner):
 
 
 class BalanceFrontier(DropPlanner):
+    """
+    Planner which attempts to balance the current and second frontier needed balls.
+    Will look at the next two frontiers, determine which color is needed most to balance what is needed,
+    then find the candidate columns that needs the current ball color and balancers frontier.
+
+    Chooses the closet candidate column to the current cart position.
+    """
     def __init__(self, board: MarbleBoard) -> None:
         self.board = board
 
