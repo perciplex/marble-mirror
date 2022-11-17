@@ -1,14 +1,12 @@
 import time
 import logging
 
-from marble_control import BallReader, Gate, StepperMotor, LimitSwitch, BallReaderKNN
+from marble_control import BallReader, Gate, StepperMotor, LimitSwitch
 from marble_mirror import (
     CarriageMoveDirection,
-    Elevator,
     ELEVATOR_BALL_PUSH_STEPS,
     ElevatorMoveDirection,
     CarriageMotor,
-    CARRIAGE_MOTOR_COLUMN_STEPS,
     Carriage,
     ElevatorMoveDirection,
     CARRIAGE_SERVO_OPEN_ANGLE,
@@ -49,23 +47,19 @@ def test_stepper_2_reverse(move_amount=250):
 
 
 def test_elevator_push_ball():
-    stepper = Elevator(channel=2)
+    stepper = StepperMotor(channel=2)
     stepper.push_next_ball()
 
 
 def test_carriage_one_column_away():
     stepper = CarriageMotor(channel=1)
-    logging.error(
-        f"Carriage moving away, CarriageMoveDirection.AWAY = {CarriageMoveDirection.AWAY}"
-    )
+    logging.error(f"Carriage moving away, CarriageMoveDirection.AWAY = {CarriageMoveDirection.AWAY}")
     stepper.move(STEPS_PER_COLUMN, CarriageMoveDirection.AWAY)
 
 
 def test_carriage_one_column_towards():
     stepper = CarriageMotor(channel=1)
-    logging.error(
-        f"Carriage moving towards, CarriageMoveDirection.TOWARDS = {CarriageMoveDirection.TOWARDS}"
-    )
+    logging.error(f"Carriage moving towards, CarriageMoveDirection.TOWARDS = {CarriageMoveDirection.TOWARDS}")
     stepper.move(STEPS_PER_COLUMN, CarriageMoveDirection.TOWARDS)
 
 
@@ -92,19 +86,22 @@ def test_switch_down():
 
 
 def test_ball_reader_value():
-    ball_reader = BallReaderKNN()
+    ball_reader = BallReader()
     print(ball_reader.color)
 
 
 def test_carriage_open():
-    servo = Gate(
-        open_angle=CARRIAGE_SERVO_OPEN_ANGLE, closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE
-    )
+    servo = Gate(open_angle=CARRIAGE_SERVO_OPEN_ANGLE, closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE)
     servo.open()
 
 
 def test_carriage_close():
-    servo = Gate(
-        open_angle=CARRIAGE_SERVO_OPEN_ANGLE, closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE
-    )
+    servo = Gate(open_angle=CARRIAGE_SERVO_OPEN_ANGLE, closed_angle=CARRIAGE_SERVO_CLOSE_ANGLE)
+    servo.close()
+
+
+def test_image_drop():
+    servo = Gate(channel=12, open_angle=100, closed_angle=150)
+    servo.open()
+    time.sleep(1)
     servo.close()

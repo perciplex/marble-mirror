@@ -1,3 +1,3 @@
-`sudo pip3 install adafruit-circuitpython-motorkit`
+`pip install -e .`
 
 # marble-mirror
